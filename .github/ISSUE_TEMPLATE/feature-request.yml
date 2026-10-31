@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest a future improvement for this bootstrap project.
+title: "[Feature]: "
+labels:
+  - needs-triage
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: User need
+      description: What problem or need should a future feature address?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Smallest useful outcome
+      description: What is the smallest result that would help?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What alternatives or workarounds have you considered?
+    validations:
+      required: false

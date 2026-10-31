@@ -1,0 +1,22 @@
+version: "3"
+
+tasks:
+  brand:generate:
+    desc: Generate brand assets
+    cmds:
+      - python3 scripts/brand_generate.py --generate
+
+  brand:check:
+    desc: Check brand assets are current
+    cmds:
+      - python3 scripts/brand_generate.py --check
+
+  docs:build:
+    desc: Build documentation
+    cmds:
+      - zensical build
+
+  docs:check:
+    desc: Build documentation with strict checks
+    cmds:
+      - zensical build --strict
