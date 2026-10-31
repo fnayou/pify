@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security concern
+    url: https://github.com/fnayou/pify/blob/main/SECURITY.md
+    about: Open a public issue without vulnerability details to arrange private contact.

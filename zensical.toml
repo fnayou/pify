@@ -1,0 +1,10 @@
+[project]
+site_name = "Pify"
+site_description = "A bootstrap project laying the groundwork for future Pify development."
+docs_dir = "website"
+site_dir = "site"
+site_url = "https://fnayou.github.io/pify/"
+extra_css = ["stylesheets/macchiato.css"]
+
+[project.theme.palette]
+scheme = "macchiato"
