@@ -29,7 +29,7 @@ All links point at the `v1.4.0` tag of the official repository. The release was 
 - With an isolated agent directory, `pi list` reports `No packages installed.` and `pi install --help` prints usage without installing anything.
 - The RPC reproduction below started the runtime, answered one `get_state` request with `success:true`, and exited with code 0 after stdin reached end of file. No model was called.
 - The `get_state` response described an unconfigured placeholder model with the model name `unknown`, thinking level `off`, no streaming, no compaction in progress, and zero messages. The response contained no credentials.
-- Pi wrote only `auth.json` and `models-store.json`, each two bytes, into the isolated agent directory during these checks. The most likely cause is Pi itself, but which command created them was not isolated.
+- After the checks, the isolated agent directory contained `auth.json` and `models-store.json`, each two bytes. Their creator and the command that created them were not proven.
 
 ## Reproduce offline RPC get_state
 
@@ -89,6 +89,4 @@ Configuration and trust ([configuration](https://github.com/earendil-works/pi/bl
 
 ## Drift risks
 
-- When checked, `main` was 287 commits ahead of `v1.4.0`. The comparison listed no changes to the configuration, CLI, packages, extensions and security documents, but its file list may be capped, so treat that as likely rather than proven. The RPC document was not part of that comparison.
 - The extension type declarations that define exact signatures are linked from the documentation on `main`, not on the tag. Re-read them at the tag before depending on a signature.
-- `pi update` updates Pi itself by default, so avoid it in tests.
