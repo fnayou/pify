@@ -29,7 +29,8 @@ All links point at the `v1.4.0` tag of the official repository. The release was 
 - With an isolated agent directory, `pi list` reports `No packages installed.` and `pi install --help` prints usage without installing anything.
 - The RPC reproduction below started the runtime, answered one `get_state` request with `success:true`, and exited with code 0 after stdin reached end of file. No model was called.
 - The `get_state` response described an unconfigured placeholder model with the model name `unknown`, thinking level `off`, no streaming, no compaction in progress, and zero messages. The response contained no credentials.
-- After the checks, the isolated agent directory contained `auth.json` and `models-store.json`, each two bytes. Their creator and the command that created them were not proven.
+- In the earlier checks, the isolated agent directory contained `auth.json` and `models-store.json`, each two bytes. Their creator and the command that created them were not proven.
+- A later run of the documented command below, on macOS with a fresh empty agent directory and an empty workspace, printed `1.4.0` for `pi --version`. It produced one JSONL response with `"type":"response"`, `"command":"get_state"` and `"success":true`, empty stderr and exit code 0. No model was called. The agent directory then contained `auth.json` and `models-store.json`, so a fresh empty agent directory still gets those two files. Their sizes were not captured in that run. The temporary fixture was removed afterward.
 
 ## Reproduce offline RPC get_state
 
@@ -51,7 +52,7 @@ Expected on 1.4.0: one JSONL line with `"type":"response"`, `"command":"get_stat
 
 Reproduction limits:
 
-- The observed run used an agent directory that already held the two files named above. Starting from a freshly created empty agent directory, as in the command, was not run.
+- The first observed run used an agent directory that already held the two files named above. The later macOS run started from a freshly created empty agent directory, as in the command, and is the clean reproduction. It used a temporary fixture directory and ran the same flags and environment variables as the command.
 - The response field names are observed values. They were not checked against the RPC command reference.
 - Delete the temporary directory when done.
 
@@ -84,7 +85,7 @@ Configuration and trust ([configuration](https://github.com/earendil-works/pi/bl
 - Project trust behavior, including the saved-decision file location when the agent directory is overridden.
 - A prompted run against a real model, and any RPC command other than `get_state`.
 - Session persistence. `--no-session` was used throughout.
-- A repeat on Linux.
+- A repeat on Linux. The clean reproduction was observed on macOS only.
 - The user's real Pi configuration was not diffed. Every Pi command set `PI_CODING_AGENT_DIR` to the throwaway directory and no install ran, but no before-and-after comparison of the default agent directory was taken.
 
 ## Drift risks
