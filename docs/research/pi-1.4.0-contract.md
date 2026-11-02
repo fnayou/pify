@@ -2,7 +2,7 @@
 
 Status: bootstrap research for [issue #12](https://github.com/fnayou/pify/issues/12). Pify has no released features; this page records what was checked about the Pi runtime, not anything Pify ships.
 
-Checked on 2026-11-01 on macOS. Pi 1.4.0 is the verified target. This report asserts no support range for other Pi versions, because the tagged documentation states none.
+Checked on 2026-11-01 on macOS and 2026-11-02 on Debian GNU/Linux 13. Pi 1.4.0 is the verified target. This report asserts no support range for other Pi versions, because the tagged documentation states none.
 
 ## Sources
 
@@ -31,6 +31,7 @@ All links point at the `v1.4.0` tag of the official repository. The release was 
 - The `get_state` response described an unconfigured placeholder model with the model name `unknown`, thinking level `off`, no streaming, no compaction in progress, and zero messages. The response contained no credentials.
 - In the earlier checks, the isolated agent directory contained `auth.json` and `models-store.json`, each two bytes. Their creator and the command that created them were not proven.
 - A later run of the documented command below, on macOS with a fresh empty agent directory and an empty workspace, printed `1.4.0` for `pi --version`. It produced one JSONL response with `"type":"response"`, `"command":"get_state"` and `"success":true`, empty stderr and exit code 0. No model was called. The agent directory then contained `auth.json` and `models-store.json`, so a fresh empty agent directory still gets those two files. Their sizes were not captured in that run. The temporary fixture was removed afterward.
+- On 2026-11-02, the same RPC fixture passed on Debian GNU/Linux 13 with Node.js 22.23.4 from the server's Homebrew installation. Pi 1.4.0 was installed with `npm install --global --prefix <temporary-prefix> --ignore-scripts @earendil-works/pi-coding-agent@1.4.0`; the prefix and fixture were removed after the run. `pi --version` printed `1.4.0`. RPC returned one JSONL response with `"type":"response"`, `"command":"get_state"` and `"success":true`; stderr was empty and exit code was 0. No model was called. The fresh agent directory contained `models-store.json` and `auth.json`.
 
 ## Reproduce offline RPC get_state
 
@@ -52,7 +53,7 @@ Expected on 1.4.0: one JSONL line with `"type":"response"`, `"command":"get_stat
 
 Reproduction limits:
 
-- The first observed run used an agent directory that already held the two files named above. The later macOS run started from a freshly created empty agent directory, as in the command, and is the clean reproduction. It used a temporary fixture directory and ran the same flags and environment variables as the command.
+- The first observed macOS run used an agent directory that already held the two files named above. Later macOS and Linux runs started from freshly created empty agent directories and used empty workspaces. Both used temporary fixture directories and the same flags and environment variables as the command. The Linux run also used a temporary npm prefix for the Pi 1.4.0 runtime.
 - The response field names are observed values. They were not checked against the RPC command reference.
 - Delete the temporary directory when done.
 
@@ -85,8 +86,7 @@ Configuration and trust ([configuration](https://github.com/earendil-works/pi/bl
 - Project trust behavior, including the saved-decision file location when the agent directory is overridden.
 - A prompted run against a real model, and any RPC command other than `get_state`.
 - Session persistence. `--no-session` was used throughout.
-- A repeat on Linux. The clean reproduction was observed on macOS only.
-- The user's real Pi configuration was not diffed. Every Pi command set `PI_CODING_AGENT_DIR` to the throwaway directory and no install ran, but no before-and-after comparison of the default agent directory was taken.
+- The user's real Pi configuration was not diffed. Every Pi runtime command set `PI_CODING_AGENT_DIR` to the throwaway directory. The Pi 1.4.0 runtime was installed only under a temporary npm prefix for the Linux run and removed afterward; no Pi resource packages were installed. No before-and-after comparison of the default agent directory was taken.
 
 ## Drift risks
 
