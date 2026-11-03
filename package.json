@@ -1,0 +1,11 @@
+{
+  "name": "pify",
+  "private": true,
+  "description": "Bootstrap package for the official Pi coding agent",
+  "pi": {
+    "extensions": [],
+    "skills": [],
+    "prompts": [],
+    "themes": []
+  }
+}
