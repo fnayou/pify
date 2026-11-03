@@ -46,6 +46,7 @@ test("creates private ownership state before a change and backs up only the owne
     target: path.join(await fs.realpath(agentDir), relativePath),
     origin: "created",
     digest: digestFile(first),
+    lastTransactionId: preparedCreate.id,
   });
 
   const second = Buffer.from("second version\n");

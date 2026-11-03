@@ -31,4 +31,4 @@ jobs:
       - name: Exercise Pify package in isolated agent and workspace
         run: python3 scripts/smoke_pi_package.py
       - name: Verify scoped ownership and backup
-        run: node --test tests/managed-state.test.mjs
+        run: node --test tests/*.test.mjs
