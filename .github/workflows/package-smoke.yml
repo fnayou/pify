@@ -1,0 +1,32 @@
+name: Pi package smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # actions/setup-node v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22.23.4"
+      # actions/setup-python v7.1.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: "3.13"
+      - name: Install Pi 1.4.0 in isolated prefix
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/pi-runtime" --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
+          echo "$RUNNER_TEMP/pi-runtime/bin" >> "$GITHUB_PATH"
+      - name: Exercise Pify package in isolated agent and workspace
+        run: python3 scripts/smoke_pi_package.py
