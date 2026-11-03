@@ -111,6 +111,9 @@ def main() -> None:
         check_tui(workspace, env)
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
+        native_files = {path.name for path in agent.iterdir()}
+        if native_files != {"auth.json", "models-store.json", "settings.json"}:
+            raise AssertionError(f"Unexpected agent configuration files: {sorted(native_files)}")
         print(f"Pify native Pi package smoke passed on {os.uname().sysname}")
 
 
