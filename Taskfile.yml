@@ -23,7 +23,7 @@ tasks:
       - zensical build --strict
 
   version:check:
-    desc: Validate npm-compatible YYYY.M.D CalVer metadata
+    desc: Validate npm-compatible YYYY.M.PATCH CalVer metadata
     cmds:
       - python3 scripts/check_calver.py
       - python3 -m unittest discover -s tests -p test_calver.py
