@@ -1,6 +1,6 @@
 # Security Policy
 
-Pify has no supported release or installable software yet. No versions currently receive security updates.
+Pify has no supported release yet. The private development package does not receive versioned security updates.
 
 ## Report a vulnerability
 

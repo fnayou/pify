@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img">
-  <title>Pify social preview: Bootstrap project — planned distribution; no installable software or features released.</title>
+  <title>Pify social preview: Bootstrap project — no released distribution or features.</title>
   <!-- Pify brand source v1.0.0; bootstrap artwork. -->
   <rect width="1280" height="640" fill="#181926"/>
   <rect x="32" y="32" width="1216" height="576" rx="32" fill="#24273a" stroke="#494d64" stroke-width="2"/>
@@ -15,5 +15,5 @@
   <text x="240" y="177" font-family="sans-serif" font-size="76" font-weight="700" fill="#cad3f5">Pify</text>
   <text x="80" y="330" font-family="sans-serif" font-size="40" fill="#b8c0e0">One Pi. Your models. Your tools. Your workflow.</text>
   <text x="80" y="445" font-family="sans-serif" font-size="24" fill="#ed8796">Planned configuration, skills, tools, and workflows that build on the Pi coding agent.</text>
-  <text x="80" y="502" font-family="sans-serif" font-size="23" fill="#b8c0e0">Bootstrap project — planned distribution; no installable software or features released.</text>
+  <text x="80" y="502" font-family="sans-serif" font-size="23" fill="#b8c0e0">Bootstrap project — no released distribution or features.</text>
 </svg>
