@@ -14,3 +14,7 @@ Search [GitHub Issues](https://github.com/fnayou/pify/issues) before opening a n
 - Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>[optional scope]: <description>`, for example `docs: clarify bootstrap status`.
 
 Follow the [code of conduct](CODE_OF_CONDUCT.md) in issues, pull requests, and other project spaces.
+
+## Run review checks
+
+Install Task and the pinned dependencies in `requirements-docs.txt`, then run `task check` on macOS or Linux. It builds the docs in strict mode and validates the private package's `YYYY.M.D` version metadata. The metadata is not a release announcement.

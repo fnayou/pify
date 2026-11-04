@@ -1,5 +1,6 @@
 {
   "name": "pify",
+  "version": "2026.11.4",
   "private": true,
   "description": "Bootstrap package for the official Pi coding agent",
   "pi": {
