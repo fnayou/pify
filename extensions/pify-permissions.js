@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
+import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -18,9 +19,20 @@ export default function (pi) {
     authorizedPaths: String(pi.getFlag("pify-scope") ?? "").split(",").map((item) => item.trim()).filter(Boolean),
     callerId: "pi-session",
   });
+  const agentDir = () => path.resolve(process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
+  const themePermission = (permission) => permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, THEME_SETTING_RESOURCE] });
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setStatus("pify", modeLabel(currentPermission()));
+    if (ctx.mode !== "tui") return;
+    try {
+      if (ctx.ui.theme.name === "system" && (await inspectThemeSelection({ agentDir: agentDir() })).usePifyOnFreshStart) {
+        const result = ctx.ui.setTheme(PIFY_THEME);
+        if (!result.success) ctx.ui.notify(`Pify theme unavailable: ${result.error}`, "warning");
+      }
+    } catch (error) {
+      ctx.ui.notify(`Pify theme selection unavailable: ${error.message}`, "warning");
+    }
   });
   pi.on("session_shutdown", (_event, ctx) => {
     ctx.ui.setStatus("pify", undefined);
@@ -49,8 +61,7 @@ export default function (pi) {
       } catch {
         // Report unknown compatibility while keeping the rest of the check usable.
       }
-      const agentDir = path.resolve(process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
-      const report = await buildHealthReport({ agentDir, projectDir: ctx.cwd, piVersion });
+      const report = await buildHealthReport({ agentDir: agentDir(), projectDir: ctx.cwd, piVersion });
       ctx.ui.notify(ctx.mode === "tui" ? formatHealthReport(report) : JSON.stringify(report), "info");
     },
   });
@@ -83,6 +94,51 @@ export default function (pi) {
         ctx.ui.notify(ctx.mode === "tui" ? `Project workflow: ${message.status}${message.next ? `. ${message.next}.` : ""}` : JSON.stringify(message), "info");
       } catch (error) {
         ctx.ui.notify(ctx.mode === "tui" ? `Project workflow unchanged: ${error.message}` : JSON.stringify({ status: "conflict", reason: error.message }), "warning");
+      }
+    },
+  });
+
+  pi.registerCommand("pify-theme", {
+    description: "Inspect, select, or roll back the Pify theme",
+    handler: async (args, ctx) => {
+      const action = args.trim() || "status";
+      if (!["status", "enable", "rollback"].includes(action)) {
+        ctx.ui.notify("Usage: /pify-theme [status|enable|rollback]", "warning");
+        return;
+      }
+      try {
+        const before = await inspectThemeSelection({ agentDir: agentDir() });
+        if (action === "status") {
+          ctx.ui.notify(ctx.mode === "tui"
+            ? `Active theme: ${ctx.ui.theme.name ?? "unknown"}; saved theme: ${before.theme ?? "system"}; Pify rollback: ${before.rollbackAvailable ? "available" : "unavailable"}`
+            : JSON.stringify(before), "info");
+          return;
+        }
+        let permission = currentPermission();
+        if (ctx.mode === "tui") {
+          if (action === "enable" && !ctx.ui.getTheme(PIFY_THEME)) throw new Error("Pify theme is not loaded");
+          const approved = await ctx.ui.confirm(
+            action === "enable" ? "Select Pify theme?" : "Roll back Pify theme?",
+            action === "enable"
+              ? `Change ${THEME_SETTING_RESOURCE} theme from ${before.theme ?? "system"} to ${PIFY_THEME}?`
+              : `Restore the previous theme in ${THEME_SETTING_RESOURCE}?`,
+          );
+          if (!approved) {
+            ctx.ui.notify("Theme unchanged", "info");
+            return;
+          }
+          permission = themePermission(permission);
+        }
+        const result = action === "enable"
+          ? await selectPifyTheme({ agentDir: agentDir(), permission, approvalSource: ctx.mode === "tui" ? "tui-confirmation" : "explicit-scope" })
+          : await rollbackPifyTheme({ agentDir: agentDir(), permission });
+        if (ctx.mode === "tui" && (result.status === "selected" || result.status === "rolled-back")) {
+          const switched = ctx.ui.setTheme(action === "enable" ? PIFY_THEME : result.theme ?? "system");
+          if (!switched.success) ctx.ui.notify(`Saved theme changed; run /reload: ${switched.error}`, "warning");
+        }
+        ctx.ui.notify(ctx.mode === "tui" ? `Pify theme: ${result.status}` : JSON.stringify(result), "info");
+      } catch (error) {
+        ctx.ui.notify(ctx.mode === "tui" ? `Theme unchanged: ${error.message}` : JSON.stringify({ status: "conflict", reason: error.message }), "warning");
       }
     },
   });

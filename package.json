@@ -7,6 +7,6 @@
     "extensions": ["extensions/pify-permissions.js"],
     "skills": ["skills/pify-debug", "skills/pify-test-first"],
     "prompts": [],
-    "themes": []
+    "themes": ["themes/pify.json"]
   }
 }
