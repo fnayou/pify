@@ -13,16 +13,19 @@ Standard library only. Raster derivatives are optional and need rsvg-convert.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
+import zlib
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PNG_SOURCE_KEY = b"pify-source-sha256"
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 PLACEHOLDER = re.compile(r"\{\{[^}]*\}\}")
 LOOSE_COLOR = re.compile(
@@ -141,15 +144,42 @@ def rasterize(svg_text: str, width: int, height: int) -> bytes:
             raise BrandError("rsvg-convert is not installed (package librsvg2-bin)") from error
         if done.returncode != 0:
             raise BrandError("rsvg-convert failed: " + done.stderr.decode("utf-8", "replace").strip())
-        return png_path.read_bytes()
+        png = png_path.read_bytes()
+        if len(png) < 33 or png[:8] != PNG_SIGNATURE or png[8:16] != b"\x00\x00\x00\x0dIHDR":
+            raise BrandError("rsvg-convert produced an invalid PNG header")
+        digest = hashlib.sha256(svg_text.encode("utf-8")).hexdigest().encode("ascii")
+        payload = PNG_SOURCE_KEY + b"\x00" + digest
+        kind = b"tEXt"
+        chunk = len(payload).to_bytes(4, "big") + kind + payload + zlib.crc32(kind + payload).to_bytes(4, "big")
+        return png[:33] + chunk + png[33:]
 
 
-def png_problems(data: bytes, width: int, height: int) -> list[str]:
+def png_problems(data: bytes, width: int, height: int, svg_text: str) -> list[str]:
     if data[:8] != PNG_SIGNATURE:
         return ["not a PNG file"]
+    if len(data) < 33 or data[8:16] != b"\x00\x00\x00\x0dIHDR":
+        return ["invalid PNG header"]
     actual = (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big"))
     if actual != (width, height):
         return [f"size is {actual[0]}x{actual[1]}, expected {width}x{height}"]
+    expected = hashlib.sha256(svg_text.encode("utf-8")).hexdigest().encode("ascii")
+    markers = []
+    offset = 8
+    while offset + 12 <= len(data):
+        length = int.from_bytes(data[offset:offset + 4], "big")
+        end = offset + 12 + length
+        if end > len(data):
+            return ["truncated PNG chunk"]
+        kind = data[offset + 4:offset + 8]
+        payload = data[offset + 8:offset + 8 + length]
+        if kind == b"tEXt" and payload.startswith(PNG_SOURCE_KEY + b"\x00"):
+            crc = int.from_bytes(data[end - 4:end], "big")
+            if crc != zlib.crc32(kind + payload):
+                return ["invalid PNG source marker"]
+            markers.append(payload[len(PNG_SOURCE_KEY) + 1:])
+        offset = end
+    if markers != [expected]:
+        return ["stale or missing PNG source marker"]
     return []
 
 
@@ -180,11 +210,14 @@ def check(root: Path) -> list[str]:
         if path.name not in rendered:
             problems.append(f"generated/{path.name} has no template")
     for spec in raster_specs(root):
+        if spec["source"] not in rendered:
+            problems.append(f"raster source {spec['source']} has no template")
+            continue
         path = out_dir / (Path(spec["source"]).stem + ".png")
         if not path.is_file():
             problems.append(f"missing generated/{path.name}")
             continue
-        problems += [f"generated/{path.name}: {p}" for p in png_problems(path.read_bytes(), spec["width"], spec["height"])]
+        problems += [f"generated/{path.name}: {p}" for p in png_problems(path.read_bytes(), spec["width"], spec["height"], rendered[spec["source"]])]
     return problems
 
 

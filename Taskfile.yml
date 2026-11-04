@@ -10,6 +10,7 @@ tasks:
     desc: Check brand assets are current
     cmds:
       - python3 scripts/brand_generate.py --check
+      - python3 -m unittest discover -s tests -p test_brand.py
 
   docs:build:
     desc: Build documentation
@@ -28,7 +29,8 @@ tasks:
       - python3 -m unittest discover -s tests -p test_calver.py
 
   check:
-    desc: Run documentation and version review gates
+    desc: Run brand, documentation, and version review gates
     cmds:
+      - task: brand:check
       - task: docs:check
       - task: version:check

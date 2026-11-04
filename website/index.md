@@ -2,7 +2,7 @@
 
 **One Pi. Your models. Your tools. Your workflow.**
 
-Pify is a planned distribution for the official Pi coding agent. This public repository is currently bootstrap-only: there is no installable distribution or released features yet. Setup and usage guidance will follow validated implementation.
+Pify is a planned distribution for the official Pi coding agent. This repository is in bootstrap. There is no supported release or installable distribution yet.
 
 ## Start here
 
@@ -10,6 +10,10 @@ Pify is a planned distribution for the official Pi coding agent. This public rep
 - [GitHub repository](https://github.com/fnayou/pify)
 - [GitHub Issues](https://github.com/fnayou/pify/issues)
 
-## Planned features
+## Implemented in the repository (unreleased)
 
-Planned features are not released. The project has no released features today; future plans and progress belong in [GitHub Issues](https://github.com/fnayou/pify/issues).
+The repository contains a [private Pi development package](https://github.com/fnayou/pify/blob/main/package.json), tests, and generated brand assets. These are development artifacts; no Pify version or user-facing feature has shipped.
+
+## Planned distribution
+
+The ready-to-use distribution and public setup instructions remain planned. Follow [GitHub Issues](https://github.com/fnayou/pify/issues) for scope and progress.
