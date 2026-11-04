@@ -10,7 +10,7 @@ Pify is a planned ready-to-use distribution of configuration, skills, tools, and
 
 ## Implemented in the repository (unreleased)
 
-- A [private Pi package](package.json) with extensions, bundled skills, and test fixtures. Its version is development metadata, not a release.
+- A [private Pi package](package.json) with extensions, bundled skills, a theme, and test fixtures. Its version is development metadata, not a release.
 - Reproducible [brand sources](brand/src/) and generated assets, checked by CI.
 - The MIT [license](LICENSE), [contribution guidance](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), and [security policy](SECURITY.md).
 
