@@ -17,4 +17,4 @@ Follow the [code of conduct](CODE_OF_CONDUCT.md) in issues, pull requests, and o
 
 ## Run review checks
 
-Install Task and the pinned dependencies in `requirements-docs.txt`, then run `task check` on macOS or Linux. It verifies generated brand assets, builds the docs in strict mode, and validates the private package's `YYYY.M.D` version metadata. The metadata is not a release announcement. Run `node --test tests/*.test.mjs` for the JavaScript unit tests.
+Install Task and the pinned dependencies in `requirements-docs.txt`, then run `task check` on macOS or Linux. It verifies generated brand assets, builds the docs in strict mode, and validates the private package's `YYYY.M.PATCH` version metadata. PATCH is a release counter within a month, not a calendar day. The metadata is not a release announcement. Before a release, compare the candidate with the latest published version or tag using `python3 scripts/check_calver.py --previous-release VERSION`; `task check` validates syntax only. Run `node --test tests/*.test.mjs` for the JavaScript unit tests.
