@@ -25,10 +25,10 @@ export function deriveWorkerPermission(parent, { mode = parent.mode, authorizedP
   return child;
 }
 
-export function authorizePifyAction({ permission = permissionContext(), requestId = randomUUID(), action }) {
+function resultBase({ permission, requestId, action }) {
   const { mode, authorizedPaths, callerId } = permissionContext(permission);
   const targets = action?.targets;
-  const base = {
+  return {
     schema: RESULT_SCHEMA,
     requestId,
     mode,
@@ -36,6 +36,21 @@ export function authorizePifyAction({ permission = permissionContext(), requestI
     scope: { authorizedPaths },
     action: { kind: action?.kind ?? null, targets: Array.isArray(targets) ? targets : [] },
   };
+}
+
+export function clarificationResult({ permission = permissionContext(), requestId = randomUUID(), question, options = [] }) {
+  return {
+    ...resultBase({ permission, requestId, action: { kind: "choose", targets: [] } }),
+    outcome: "clarification_required",
+    missing: [question],
+    options,
+  };
+}
+
+export function authorizePifyAction({ permission = permissionContext(), requestId = randomUUID(), action }) {
+  const base = resultBase({ permission, requestId, action });
+  const { mode, scope: { authorizedPaths } } = base;
+  const targets = action?.targets;
   if (!action?.kind || !Array.isArray(targets) || targets.length === 0 || targets.some((item) => !exactPath(item))) {
     return { ...base, outcome: "clarification_required", missing: ["exact action targets"] };
   }

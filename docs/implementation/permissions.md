@@ -16,4 +16,6 @@ Read-only previews need no scope. The lower-level `managed-state.mjs` primitives
 
 The result schema is `pify.permission-result/v1`. It carries a Pify request ID, mode, caller ID, declared scope, action, exact targets, and `allowed`, `denied`, `approval_required`, or `clarification_required` outcome. A blocked call returns this result without prompting. The result is distinct from Pi RPC's `success` field, which reports command handling only. An `allowed` check does not promise that the resource-specific workflow can perform the action.
 
+The [choice command](choices.md) uses the same result envelope for a missing detail. Its `choose` action has no file targets and grants no side-effect authority; a later action must pass its own permission check.
+
 This contract targets the pinned Pi 1.4.0 fixture. The headless smoke test checks default and selected modes with and without scope on macOS and Linux.

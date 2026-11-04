@@ -42,6 +42,8 @@ jobs:
         run: python3 scripts/smoke_pi_permissions.py
       - name: Verify session job lifecycle and cleanup
         run: python3 scripts/smoke_pi_jobs.py
+      - name: Verify interactive choices and headless clarification
+        run: python3 scripts/smoke_pi_choices.py
       - name: Install ripgrep for bounded search fixtures
         run: |
           if command -v rg >/dev/null 2>&1; then exit 0; fi
