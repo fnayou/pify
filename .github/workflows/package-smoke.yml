@@ -40,5 +40,14 @@ jobs:
         run: python3 scripts/smoke_pi_optimizations.py
       - name: Verify headless permission modes in Pi
         run: python3 scripts/smoke_pi_permissions.py
+      - name: Install ripgrep for bounded search fixtures
+        run: |
+          if command -v rg >/dev/null 2>&1; then exit 0; fi
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install ripgrep
+          else
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
       - name: Verify scoped ownership and backup
         run: node --test tests/*.test.mjs
