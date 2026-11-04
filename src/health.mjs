@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { listOwnedFiles } from "./managed-state.mjs";
+import { inspectProjectWorkflow } from "./project-workflow.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const SUPPORTED_PI_VERSION = "1.4.0";
@@ -45,7 +46,7 @@ async function bundledSkills(install, warnings) {
 }
 
 /** Build a read-only report. Unknown or damaged state is reported without claiming ownership. */
-export async function buildHealthReport({ agentDir, piVersion = null }) {
+export async function buildHealthReport({ agentDir, projectDir = null, piVersion = null }) {
   if (typeof agentDir !== "string" || !path.isAbsolute(agentDir)) throw new Error("Absolute Pi agent directory is required");
   const warnings = [];
   let version = null;
@@ -65,6 +66,15 @@ export async function buildHealthReport({ agentDir, piVersion = null }) {
     }
   }
   const install = await installStatus(agentDir, warnings);
+  let projectWorkflow = { status: "not_checked" };
+  if (projectDir !== null) {
+    try {
+      projectWorkflow = await inspectProjectWorkflow({ projectDir });
+    } catch (error) {
+      warnings.push(`Project workflow could not be read: ${error.message}`);
+      projectWorkflow = { status: "unavailable" };
+    }
+  }
   return {
     schema: "pify.health/v1",
     compatibility: {
@@ -75,6 +85,7 @@ export async function buildHealthReport({ agentDir, piVersion = null }) {
     install,
     pifyPackageVersion: version,
     bundledSkills: await bundledSkills(install, warnings),
+    projectWorkflow,
     inventory: {
       status: inventoryStatus,
       managed: owned.filter((item) => item.action !== "conflict").map(({ relativePath, digest, version: resourceVersion }) => ({ relativePath, digest, version: resourceVersion })),
@@ -90,6 +101,7 @@ export function formatHealthReport(report) {
     `Pi ${report.compatibility.observedPiVersion ?? "unknown"}: ${report.compatibility.status} (target ${report.compatibility.targetPiVersion})`,
     `Pify package: ${report.install.status}; metadata version ${report.pifyPackageVersion ?? "unknown"}`,
     `Bundled skills: ${report.bundledSkills.length}`,
+    `Project workflow: ${report.projectWorkflow.status}`,
     `Managed resources: ${report.inventory.managed.length}`,
   ];
   for (const item of report.bundledSkills) lines.push(`- ${item.name}: ${item.source} @ ${item.sourceVersion} (${item.license})`);
