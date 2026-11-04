@@ -3,7 +3,7 @@
   "private": true,
   "description": "Bootstrap package for the official Pi coding agent",
   "pi": {
-    "extensions": [],
+    "extensions": ["extensions/pify-permissions.js"],
     "skills": [],
     "prompts": [],
     "themes": []

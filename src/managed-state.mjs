@@ -356,6 +356,13 @@ async function transactionFor(stateDir, transactionId) {
   return { transaction, transactionPath };
 }
 
+/** Read-only transaction target for permission checks before rollback. */
+export async function describeManagedTransaction({ agentDir, transactionId }) {
+  const { agent } = await existingStateFor(agentDir);
+  const { transaction } = await transactionFor(path.join(agent, STATE_NAME), transactionId);
+  return { relativePath: transaction.relativePath, status: transaction.status };
+}
+
 function sameOrderedSubset(subset, full) {
   let previousIndex = -1;
   for (const item of subset) {

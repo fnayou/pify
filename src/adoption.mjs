@@ -1,11 +1,13 @@
 import {
   digestFile,
+  describeManagedTransaction,
   inspectManagedFile,
   listOwnedFiles,
   prepareManagedFileChange,
   promoteManagedFileChange,
   rollbackManagedFileChange,
 } from "./managed-state.mjs";
+import { authorizePifyAction } from "./permissions.mjs";
 
 function bytesFor(content) {
   if (typeof content === "string") return Buffer.from(content);
@@ -40,7 +42,7 @@ export async function previewAdoption({ agentDir, resources }) {
 }
 
 /** Apply a previously reviewed preview. Unowned files require exact opt-in. */
-export async function applyAdoption({ agentDir, resources, preview, approvedConflicts = [], onApplied }) {
+export async function applyAdoption({ agentDir, resources, preview, approvedConflicts = [], onApplied, permission }) {
   if (!preview || preview.schemaVersion !== 1 || !Array.isArray(preview.changes)) throw new Error("A reviewed preview is required");
   if (!Array.isArray(approvedConflicts)) throw new Error("Conflict approvals must be an array");
   const current = await previewAdoption({ agentDir, resources });
@@ -54,6 +56,8 @@ export async function applyAdoption({ agentDir, resources, preview, approvedConf
     approvals.delete(change.relativePath);
   }
   if (approvals.size) throw new Error("Conflict approval does not match the preview");
+  const decision = authorizePifyAction({ permission, action: { kind: "adopt", targets: current.changes.map((change) => change.relativePath) } });
+  if (decision.outcome !== "allowed") return decision;
 
   const transactions = [];
   try {
@@ -74,7 +78,7 @@ export async function applyAdoption({ agentDir, resources, preview, approvedConf
     }
     return { status: "applied", transactions };
   } catch (error) {
-    const recovery = await rollbackAdoption({ agentDir, transactions });
+    const recovery = await rollbackTransactions({ agentDir, transactions });
     const failure = new Error(`Adoption failed: ${error.message}; rollback ${recovery.status}`, { cause: error });
     failure.recovery = recovery;
     throw failure;
@@ -82,7 +86,7 @@ export async function applyAdoption({ agentDir, resources, preview, approvedConf
 }
 
 /** Reverse an unwanted or failed operation in reverse order. Conflicts stay untouched. */
-export async function rollbackAdoption({ agentDir, transactions }) {
+async function rollbackTransactions({ agentDir, transactions }) {
   const results = [];
   for (const transactionId of [...transactions].reverse()) {
     try {
@@ -94,16 +98,31 @@ export async function rollbackAdoption({ agentDir, transactions }) {
   return { status: results.some((result) => result.status === "recovery-needed") ? "recovery-needed" : "rolled-back", results };
 }
 
+export async function rollbackAdoption({ agentDir, transactions, permission }) {
+  const targets = [];
+  for (const transactionId of transactions) {
+    targets.push((await describeManagedTransaction({ agentDir, transactionId })).relativePath);
+  }
+  const decision = authorizePifyAction({ permission, action: { kind: "rollback", targets } });
+  if (decision.outcome !== "allowed") return decision;
+  return rollbackTransactions({ agentDir, transactions });
+}
+
 /** Show each provenance-matched file that uninstall can remove or restore. */
 export async function previewUninstall({ agentDir }) {
   return { schemaVersion: 1, changes: await listOwnedFiles({ agentDir }) };
 }
 
 /** Unwind each intact ownership chain; preserve drifted and unowned paths. */
-export async function uninstallManagedFiles({ agentDir, preview }) {
+export async function uninstallManagedFiles({ agentDir, preview, permission }) {
   if (!preview || preview.schemaVersion !== 1 || !Array.isArray(preview.changes)) throw new Error("A reviewed uninstall preview is required");
   const current = await previewUninstall({ agentDir });
   if (!samePlan(preview, current)) throw new Error("Uninstall plan changed after preview");
+  const targets = current.changes.filter((change) => change.action !== "conflict").map((change) => change.relativePath);
+  if (targets.length) {
+    const decision = authorizePifyAction({ permission, action: { kind: "uninstall", targets } });
+    if (decision.outcome !== "allowed") return decision;
+  }
   const results = [];
   for (const change of [...current.changes].reverse()) {
     if (change.action === "conflict") {
