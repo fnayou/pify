@@ -1,4 +1,12 @@
+import { execFile } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+
+import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
+
+const execFileAsync = promisify(execFile);
 
 export default function (pi) {
   pi.registerFlag("pify-mode", { type: "string", default: "balanced", description: "Pify Safe, Balanced, or Full mode" });
@@ -27,6 +35,22 @@ export default function (pi) {
         action: { kind: "adopt", targets: target ? [target] : [] },
       });
       ctx.ui.notify(JSON.stringify(result), "info");
+    },
+  });
+
+  pi.registerCommand("pify-health", {
+    description: "Report Pi compatibility, Pify install status, and managed resources",
+    handler: async (_args, ctx) => {
+      let piVersion = null;
+      try {
+        const result = await execFileAsync("pi", ["--version"], { timeout: 2000, maxBuffer: 1024 });
+        piVersion = result.stdout.trim();
+      } catch {
+        // Report unknown compatibility while keeping the rest of the check usable.
+      }
+      const agentDir = path.resolve(process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
+      const report = await buildHealthReport({ agentDir, piVersion });
+      ctx.ui.notify(ctx.mode === "tui" ? formatHealthReport(report) : JSON.stringify(report), "info");
     },
   });
 }
