@@ -40,6 +40,8 @@ jobs:
         run: python3 scripts/smoke_pi_optimizations.py
       - name: Verify headless permission modes in Pi
         run: python3 scripts/smoke_pi_permissions.py
+      - name: Verify session job lifecycle and cleanup
+        run: python3 scripts/smoke_pi_jobs.py
       - name: Install ripgrep for bounded search fixtures
         run: |
           if command -v rg >/dev/null 2>&1; then exit 0; fi
