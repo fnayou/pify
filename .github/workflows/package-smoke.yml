@@ -30,5 +30,7 @@ jobs:
           echo "$RUNNER_TEMP/pi-runtime/bin" >> "$GITHUB_PATH"
       - name: Exercise Pify package in isolated agent and workspace
         run: python3 scripts/smoke_pi_package.py
+      - name: Verify headless permission modes in Pi
+        run: python3 scripts/smoke_pi_permissions.py
       - name: Verify scoped ownership and backup
         run: node --test tests/*.test.mjs

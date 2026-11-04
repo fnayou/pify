@@ -4,7 +4,19 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { applyAdoption, previewAdoption, previewUninstall, rollbackAdoption, uninstallManagedFiles } from "../src/adoption.mjs";
+import {
+  applyAdoption as rawApplyAdoption,
+  previewAdoption,
+  previewUninstall,
+  rollbackAdoption as rawRollbackAdoption,
+  uninstallManagedFiles as rawUninstallManagedFiles,
+} from "../src/adoption.mjs";
+import { permissionContext } from "../src/permissions.mjs";
+
+const permission = permissionContext({ authorizedPaths: ["skills/personal.md", "prompts/pify.md"] });
+const applyAdoption = (args) => rawApplyAdoption({ ...args, permission });
+const rollbackAdoption = (args) => rawRollbackAdoption({ ...args, permission });
+const uninstallManagedFiles = (args) => rawUninstallManagedFiles({ ...args, permission });
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "pify-adoption-test-"));
