@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
+import { SessionJobs } from "../src/jobs.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
@@ -12,6 +13,7 @@ import { searchLocal } from "../src/search.mjs";
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
+const JOB_START_RESOURCE = "jobs/current-workspace";
 
 export default function (pi) {
   pi.registerFlag("pify-mode", { type: "string", default: "balanced", description: "Pify Safe, Balanced, or Full mode" });
@@ -24,6 +26,8 @@ export default function (pi) {
   });
   const agentDir = () => path.resolve(process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
   const themePermission = (permission) => permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, THEME_SETTING_RESOURCE] });
+  let jobs = null;
+  const sessionJobs = () => jobs ??= new SessionJobs();
 
   pi.registerTool({
     name: "pify_search",
@@ -55,8 +59,47 @@ export default function (pi) {
       ctx.ui.notify(`Pify theme selection unavailable: ${error.message}`, "warning");
     }
   });
-  pi.on("session_shutdown", (_event, ctx) => {
+  pi.on("session_shutdown", async (_event, ctx) => {
+    if (jobs) {
+      await jobs.shutdown();
+      jobs = null;
+    }
     ctx.ui.setStatus("pify", undefined);
+  });
+
+  pi.registerCommand("pify-job", {
+    description: "Start, list, inspect, log, or stop a session-bound shell job",
+    handler: async (args, ctx) => {
+      const [action, id] = args.trim().split(/\s+/, 2);
+      const manager = sessionJobs();
+      try {
+        let result;
+        if (action === "start") {
+          const command = args.trim().slice("start".length).trim();
+          if (!command) throw new Error("Usage: /pify-job start <shell command>");
+          let permission = currentPermission();
+          if (ctx.mode === "tui") {
+            const approved = await ctx.ui.confirm("Start background job?", `Run in ${ctx.cwd}: ${command}`);
+            if (!approved) {
+              ctx.ui.notify("Job not started", "info");
+              return;
+            }
+            permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, JOB_START_RESOURCE] });
+          }
+          const decision = authorizePifyAction({ permission, action: { kind: "start-job", targets: [JOB_START_RESOURCE] } });
+          result = decision.outcome === "allowed"
+            ? await manager.start({ command, cwd: ctx.cwd })
+            : { status: "not_started", permission: decision };
+        } else if (action === "list") result = manager.list();
+        else if (action === "inspect") result = manager.inspect(id);
+        else if (action === "log") result = manager.log(id);
+        else if (action === "stop") result = await manager.stop(id);
+        else throw new Error("Usage: /pify-job <start command|list|inspect id|log id|stop id>");
+        ctx.ui.notify(JSON.stringify(result), "info");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
+      }
+    },
   });
 
   pi.registerCommand("pify-permission", {
