@@ -1,0 +1,19 @@
+{
+  "schema": "pify.skills/v1",
+  "skills": [
+    {
+      "name": "pify-debug",
+      "path": "skills/pify-debug",
+      "source": "https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/skills/engineering/diagnosing-bugs/SKILL.md",
+      "sourceVersion": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+      "license": "MIT"
+    },
+    {
+      "name": "pify-test-first",
+      "path": "skills/pify-test-first",
+      "source": "https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/skills/engineering/tdd/SKILL.md",
+      "sourceVersion": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+      "license": "MIT"
+    }
+  ]
+}

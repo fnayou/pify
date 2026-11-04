@@ -117,12 +117,33 @@ def check_tui(workspace: Path, env: dict[str, str]) -> None:
 
 
 def main() -> None:
+    package = json.loads((PACKAGE_ROOT / "package.json").read_text())
+    catalog = json.loads((PACKAGE_ROOT / "skills" / "catalog.json").read_text())
+    if {item["path"] for item in catalog["skills"]} != set(package["pi"]["skills"]):
+        raise AssertionError("Skill catalog and Pi package declarations differ")
+    for item in catalog["skills"]:
+        skill = (PACKAGE_ROOT / item["path"] / "SKILL.md").read_text()
+        if not all(
+            field in skill for field in (
+                f"name: {item['name']}",
+                f"license: {item['license']}",
+                f"source: {item['source']}",
+                f"source-version: {item['sourceVersion']}",
+            )
+        ):
+            raise AssertionError(f"Skill metadata and catalog differ: {item['name']}")
     with tempfile.TemporaryDirectory(prefix="pify-package-smoke-") as fixture:
         root = Path(fixture).resolve()
         agent = root / "agent"
         workspace = root / "workspace"
         agent.mkdir()
         workspace.mkdir()
+        user_skill = agent / "skills" / "pify-debug" / "SKILL.md"
+        user_skill.parent.mkdir(parents=True)
+        user_skill.write_text(
+            "---\nname: pify-debug\ndescription: User's own debugging workflow.\n---\n\n# User skill\n"
+        )
+        user_skill_before = user_skill.read_bytes()
         env = os.environ.copy()
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
 
@@ -144,16 +165,28 @@ def main() -> None:
             raise AssertionError(
                 f"Pi package declaration resolves to {resolved_package}, expected {PACKAGE_ROOT}"
             )
+        if user_skill.read_bytes() != user_skill_before:
+            raise AssertionError("Pi package install changed the existing user skill")
 
         rpc = run_pi(
             ["--offline", "--no-mcp", "--no-session", "--mode", "rpc"],
             workspace,
             env,
-            '{"id":"smoke","type":"get_state"}\n',
+            '{"id":"smoke","type":"get_state"}\n{"id":"commands","type":"get_commands"}\n',
         )
         responses = [json.loads(line) for line in rpc.splitlines()]
         if not any(item.get("type") == "response" and item.get("command") == "get_state" and item.get("success") is True for item in responses):
             raise AssertionError(f"Pi did not start an RPC session: {rpc}")
+        command_responses = [item for item in responses if item.get("id") == "commands" and item.get("success") is True]
+        if len(command_responses) != 1:
+            raise AssertionError(f"Pi did not return commands: {rpc}")
+        commands = {item["name"]: item for item in command_responses[0]["data"]["commands"]}
+        test_first = commands.get("skill:pify-test-first")
+        if test_first is None or test_first["source"] != "skill" or test_first["sourceInfo"]["origin"] != "package":
+            raise AssertionError(f"Pify skill did not load from its package: {test_first}")
+        debug = commands.get("skill:pify-debug")
+        if debug is None or Path(debug["sourceInfo"]["path"]) != user_skill:
+            raise AssertionError(f"Existing user skill lost collision precedence: {debug}")
 
         before_health = (snapshot(agent), snapshot(workspace))
         health_records = run_health_rpc(workspace, env)
@@ -164,14 +197,23 @@ def main() -> None:
         report = json.loads(notices[0]["message"])
         if report["compatibility"]["status"] != "verified" or report["install"]["status"] != "installed" or report["inventory"]["managed"]:
             raise AssertionError(f"Unexpected Pify health report: {report}")
+        bundled = {item["name"]: item for item in report["bundledSkills"]}
+        if set(bundled) != {"pify-debug", "pify-test-first"} or any(
+            item["sourceVersion"] != "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d" or item["license"] != "MIT"
+            or not item["source"].startswith("https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/")
+            for item in bundled.values()
+        ):
+            raise AssertionError(f"Bundled skill provenance missing: {bundled}")
         if (snapshot(agent), snapshot(workspace)) != before_health:
             raise AssertionError("Pify health command modified the isolated fixture")
+        if user_skill.read_bytes() != user_skill_before:
+            raise AssertionError("Pify health check changed the existing user skill")
 
         check_tui(workspace, env)
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
         native_files = {path.name for path in agent.iterdir()}
-        if native_files != {"auth.json", "models-store.json", "settings.json"}:
+        if native_files != {"auth.json", "models-store.json", "settings.json", "skills"}:
             raise AssertionError(f"Unexpected agent configuration files: {sorted(native_files)}")
         print(f"Pify native Pi package smoke passed on {os.uname().sysname}")
 
