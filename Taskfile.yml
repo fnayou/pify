@@ -20,3 +20,15 @@ tasks:
     desc: Build documentation with strict checks
     cmds:
       - zensical build --strict
+
+  version:check:
+    desc: Validate npm-compatible YYYY.M.D CalVer metadata
+    cmds:
+      - python3 scripts/check_calver.py
+      - python3 -m unittest discover -s tests -p test_calver.py
+
+  check:
+    desc: Run documentation and version review gates
+    cmds:
+      - task: docs:check
+      - task: version:check
