@@ -36,6 +36,8 @@ jobs:
         run: python3 scripts/smoke_pi_workflow.py
       - name: Verify fresh and personal theme behavior
         run: python3 scripts/smoke_pi_theme.py
+      - name: Verify optimization detection and golden output pass-through
+        run: python3 scripts/smoke_pi_optimizations.py
       - name: Verify headless permission modes in Pi
         run: python3 scripts/smoke_pi_permissions.py
       - name: Verify scoped ownership and backup

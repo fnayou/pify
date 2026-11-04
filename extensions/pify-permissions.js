@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
+import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
@@ -63,6 +64,20 @@ export default function (pi) {
       }
       const report = await buildHealthReport({ agentDir: agentDir(), projectDir: ctx.cwd, piVersion });
       ctx.ui.notify(ctx.mode === "tui" ? formatHealthReport(report) : JSON.stringify(report), "info");
+    },
+  });
+
+  pi.registerCommand("pify-optimizations", {
+    description: "Inspect existing Pi optimizations without changing them",
+    handler: async (_args, ctx) => {
+      const report = await inspectOptimizations({
+        agentDir: agentDir(),
+        projectDir: ctx.cwd,
+        projectTrusted: ctx.isProjectTrusted(),
+      });
+      ctx.ui.notify(ctx.mode === "tui"
+        ? `RTK hook files: agent ${report.rtk.agentPiHook}, project ${report.rtk.projectPiHook}. Caveman Pi package: agent ${report.caveman.agentPiPackage}, project ${report.caveman.projectPiPackage}. Pify transforms: off.`
+        : JSON.stringify(report), "info");
     },
   });
 
