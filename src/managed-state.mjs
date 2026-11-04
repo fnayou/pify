@@ -205,6 +205,7 @@ export async function listOwnedFiles({ agentDir }) {
       action: valid ? (record.origin === "adopted" ? "restore" : "remove") : "conflict",
       reason: valid ? null : (inspected.reason ?? "Missing transaction provenance"),
       digest: record.digest,
+      version: record.version ?? null,
       lastTransactionId: record.lastTransactionId ?? null,
     });
   }
@@ -258,6 +259,7 @@ export async function prepareManagedFileChange({ agentDir, relativePath, expecte
     previousRecord: previous ?? null,
     createdParents: exists ? [] : await missingResourceParents(agent, relative),
     expectedNewDigest,
+    packageVersion: JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8")).version,
     backup: backupPath ? "prior" : null,
   };
   await fs.writeFile(path.join(transactionDir, "transaction.json"), `${JSON.stringify(transaction, null, 2)}\n`, { flag: "wx", mode: 0o600 });
@@ -289,6 +291,7 @@ export async function completeManagedFileChange({ agentDir, transactionId }) {
     target,
     origin: previous?.origin ?? (transaction.action === "adopt" ? "adopted" : "created"),
     digest: transaction.expectedNewDigest,
+    version: transaction.packageVersion ?? null,
     lastTransactionId: transactionId,
   };
   await atomicJson(manifestPath, manifest);

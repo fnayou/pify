@@ -32,6 +32,53 @@ def run_pi(args: list[str], workspace: Path, env: dict[str, str], input_text: st
     return result.stdout
 
 
+def snapshot(directory: Path) -> dict[str, bytes]:
+    return {str(path.relative_to(directory)): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
+
+
+def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
+    process = subprocess.Popen(
+        ["pi", "--offline", "--no-mcp", "--no-session", "--mode", "rpc"],
+        cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    records = []
+    pending = bytearray()
+    try:
+        assert process.stdin is not None and process.stdout is not None
+        process.stdin.write(b'{"id":"health","type":"prompt","message":"/pify-health"}\n')
+        process.stdin.flush()
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([process.stdout], [], [], 0.2)
+            if ready:
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                pending.extend(chunk)
+                while b"\n" in pending:
+                    line, _, remainder = pending.partition(b"\n")
+                    pending = bytearray(remainder)
+                    records.append(json.loads(line))
+            if any(item.get("id") == "health" and item.get("type") == "response" for item in records) and any(
+                item.get("type") == "extension_ui_request" and item.get("method") == "notify" for item in records
+            ):
+                break
+        else:
+            raise AssertionError(f"Pify health RPC timed out: {records}")
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    if process.returncode != 0:
+        assert process.stderr is not None
+        raise AssertionError(f"Pify health RPC failed ({process.returncode}): {process.stderr.read().decode()}")
+    return records
+
+
 def check_tui(workspace: Path, env: dict[str, str]) -> None:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
@@ -107,6 +154,18 @@ def main() -> None:
         responses = [json.loads(line) for line in rpc.splitlines()]
         if not any(item.get("type") == "response" and item.get("command") == "get_state" and item.get("success") is True for item in responses):
             raise AssertionError(f"Pi did not start an RPC session: {rpc}")
+
+        before_health = (snapshot(agent), snapshot(workspace))
+        health_records = run_health_rpc(workspace, env)
+        handled = [item for item in health_records if item.get("id") == "health" and item.get("type") == "response"]
+        notices = [item for item in health_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+        if len(handled) != 1 or handled[0].get("data", {}).get("disposition") != "handled" or len(notices) != 1:
+            raise AssertionError(f"Pify health command was not handled: {health_records}")
+        report = json.loads(notices[0]["message"])
+        if report["compatibility"]["status"] != "verified" or report["install"]["status"] != "installed" or report["inventory"]["managed"]:
+            raise AssertionError(f"Unexpected Pify health report: {report}")
+        if (snapshot(agent), snapshot(workspace)) != before_health:
+            raise AssertionError("Pify health command modified the isolated fixture")
 
         check_tui(workspace, env)
         if list(workspace.iterdir()):
