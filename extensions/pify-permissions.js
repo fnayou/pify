@@ -2,11 +2,13 @@ import { execFile } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
+import { searchLocal } from "../src/search.mjs";
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -22,6 +24,24 @@ export default function (pi) {
   });
   const agentDir = () => path.resolve(process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
   const themePermission = (permission) => permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, THEME_SETTING_RESOURCE] });
+
+  pi.registerTool({
+    name: "pify_search",
+    label: "Pify search",
+    description: "Search filenames or literal file contents in one named directory. Default scope is the current directory. Never follow symlinks or cross filesystem boundaries. At most 200 results and 5000 ms; reports partial results when a limit is reached.",
+    promptSnippet: "Bounded filename and literal content search within one named directory",
+    parameters: Type.Object({
+      mode: Type.Union([Type.Literal("filename"), Type.Literal("content")]),
+      query: Type.String(),
+      scope: Type.Optional(Type.String({ description: "Directory to search; defaults to the current directory. Name a network mount as this scope to search it." })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+      timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: 5000 })),
+    }),
+    execute: async (_id, params, signal, _onUpdate, ctx) => {
+      const result = await searchLocal({ cwd: ctx.cwd, ...params, signal });
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    },
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setStatus("pify", modeLabel(currentPermission()));
