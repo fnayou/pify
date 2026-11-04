@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
+import { requestChoice } from "../src/choices.mjs";
 import { SessionJobs } from "../src/jobs.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
@@ -112,6 +113,22 @@ export default function (pi) {
         action: { kind: "adopt", targets: target ? [target] : [] },
       });
       ctx.ui.notify(JSON.stringify(result), "info");
+    },
+  });
+
+  pi.registerCommand("pify-choose", {
+    description: "Resolve one missing detail from two to eight choices",
+    handler: async (args, ctx) => {
+      try {
+        const [question, ...options] = args.split("|").map((part) => part.trim());
+        const result = await requestChoice({
+          question, options, permission: currentPermission(),
+          select: ctx.mode === "tui" ? (title, choices) => ctx.ui.select(title, choices) : undefined,
+        });
+        ctx.ui.notify(JSON.stringify(result), "info");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
+      }
     },
   });
 
