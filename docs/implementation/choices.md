@@ -1,0 +1,7 @@
+# Choices and clarification
+
+Pify remains a bootstrap project. `/pify-choose <question> | <option 1> | <option 2> [| ...]` handles one missing critical detail. The caller supplies two to eight distinct choices. In Pi's interactive terminal, the command calls Pi's selection dialog. A cancelled dialog leaves the detail unresolved. The command never guesses a choice.
+
+In RPC or another headless mode, the same command returns immediately through Pi's `notify` event. The JSON uses the Wave 1 `pify.permission-result/v1` shape: request ID, mode, caller, declared scope, `action.kind: "choose"`, `outcome: "clarification_required"`, `missing`, and `options`. It does not request keyboard input. An interactive selection returns `outcome: "allowed"` with `selection`; here `allowed` means the choice was supplied, not that a side effect is authorized. The caller must still pass any later action through its own permission gate.
+
+The implementation uses the [Pi 1.4.0 extension selection API](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/extensions.md) under Pi's [MIT licence](https://github.com/earendil-works/pi/blob/v1.4.0/LICENSE), with no added dependency. The isolated Pi fixture verifies that a real terminal displays the selection dialog and that RPC returns a structured clarification without a selection request. Unit tests check selected, cancelled, and headless results.
