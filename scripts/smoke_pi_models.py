@@ -1,9 +1,15 @@
-"""Exercise Pi's local and Anthropic model paths with isolated protocol fixtures."""
+"""Exercise Pi model paths with fixtures or one private live LiteLLM validation."""
 
+import argparse
+import getpass
+import ipaddress
 import json
 import os
+import re
+import secrets
 import select
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -21,13 +27,21 @@ class ModelHandler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         request_path = urlsplit(self.path).path
         server.requests.append((request_path, body["model"]))
-        if server.kind == "local":
+        if server.kind in {"local", "litellm"}:
             assert request_path == "/v1/chat/completions"
-            assert body["model"] == "fixture-local"
+            expected_model = "fixture-local" if server.kind == "local" else "fixture-litellm"
+            assert body["model"] == expected_model
             assert body["stream"] is True
+            if server.kind == "litellm":
+                assert self.headers.get("Authorization") == "Bearer fixture-key"
+                reply = re.search(r"PIFY_CLOUD_READY_[0-9a-f]+", json.dumps(body["messages"][-1]["content"]))
+                assert reply is not None
+                reply_text = reply.group()
+            else:
+                reply_text = "READY_LOCAL"
             chunks = [
-                {"id": "chatcmpl-fixture", "object": "chat.completion.chunk", "created": 1, "model": "fixture-local", "choices": [{"index": 0, "delta": {"role": "assistant", "content": "READY_LOCAL"}, "finish_reason": None}]},
-                {"id": "chatcmpl-fixture", "object": "chat.completion.chunk", "created": 1, "model": "fixture-local", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}},
+                {"id": "chatcmpl-fixture", "object": "chat.completion.chunk", "created": 1, "model": expected_model, "choices": [{"index": 0, "delta": {"role": "assistant", "content": reply_text}, "finish_reason": None}]},
+                {"id": "chatcmpl-fixture", "object": "chat.completion.chunk", "created": 1, "model": expected_model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}},
             ]
             payload = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks) + "data: [DONE]\n\n"
         else:
@@ -64,9 +78,10 @@ def start_server(kind: str) -> ThreadingHTTPServer:
 
 
 class RpcSession:
-    def __init__(self, workspace: Path, env: dict[str, str]):
+    def __init__(self, workspace: Path, env: dict[str, str], *, offline: bool = True, timeout: int = 30):
+        self.timeout = timeout
         self.process = subprocess.Popen(
-            ["pi", "--offline", "--no-mcp", "--no-tools", "--no-session", "--mode", "rpc"],
+            ["pi", *(["--offline"] if offline else []), "--no-mcp", "--no-tools", "--no-context-files", "--no-session", "--mode", "rpc"],
             cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         self.pending = bytearray()
@@ -78,7 +93,7 @@ class RpcSession:
         events = []
         response_seen = False
         notification_seen = False
-        deadline = time.monotonic() + 30
+        deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
             while b"\n" in self.pending:
                 line, _, remainder = self.pending.partition(b"\n")
@@ -124,9 +139,80 @@ def assistant_text(events: list[dict]) -> str:
     return "".join(block.get("text", "") for block in messages[-1]["content"] if block["type"] == "text")
 
 
-def main() -> None:
+def validate_litellm(base_url: str, model: str, key: str) -> dict[str, str]:
+    parsed = urlsplit(base_url)
+    if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("Use a LiteLLM base URL without credentials, query, or fragment")
+    try:
+        loopback = ipaddress.ip_address(parsed.hostname).is_loopback
+    except ValueError:
+        loopback = parsed.hostname == "localhost"
+    if parsed.scheme != "https" and not (parsed.scheme == "http" and loopback):
+        raise ValueError("Use HTTPS, or HTTP on loopback only")
+    if not parsed.path.rstrip("/").endswith("/v1"):
+        raise ValueError("Use the LiteLLM OpenAI-compatible base URL ending in /v1")
+    if not model or any(character.isspace() for character in model):
+        raise ValueError("Enter one exact LiteLLM chat model alias")
+    if not key:
+        raise ValueError("A LiteLLM virtual key is required")
+
+    with tempfile.TemporaryDirectory(prefix="pify-live-cloud-") as fixture:
+        root = Path(fixture)
+        agent = root / "agent"
+        workspace = root / "workspace"
+        agent.mkdir()
+        workspace.mkdir()
+        config = {"providers": {"pify-litellm-validation": {
+            "baseUrl": base_url.rstrip("/"), "api": "openai-completions",
+            "apiKey": "$PIFY_LITELLM_API_KEY", "authHeader": True,
+            "models": [{"id": model, "contextWindow": 8192, "maxTokens": 128}],
+        }}}
+        models_file = agent / "models.json"
+        models_file.write_text(json.dumps(config), encoding="utf-8")
+        models_file.chmod(0o600)
+        env = os.environ.copy()
+        env.update({
+            "PI_CODING_AGENT_DIR": str(agent),
+            "PI_CODING_AGENT_SESSION_DIR": str(root / "sessions"),
+            "PI_TELEMETRY": "0",
+            "PIFY_LITELLM_API_KEY": key,
+            "TERM": "xterm-256color",
+        })
+        env.pop("PI_OFFLINE", None)
+        env.pop("PI_PACKAGE_DIR", None)
+        version = subprocess.run(
+            ["pi", "--version"], cwd=workspace, env=env, text=True,
+            capture_output=True, timeout=10, check=True,
+        ).stdout.strip()
+        if version != "1.4.0":
+            raise RuntimeError(f"Pi 1.4.0 required; found {version}")
+        subprocess.run(
+            ["pi", "install", str(PACKAGE_ROOT)], cwd=workspace, env={**env, "PI_OFFLINE": "1"},
+            text=True, capture_output=True, timeout=30, check=True,
+        )
+        rpc = RpcSession(workspace, env, offline=False, timeout=90)
+        try:
+            rpc.send({"id": "cloud-model", "type": "set_model", "provider": "pify-litellm-validation", "modelId": model})
+            expected = f"PIFY_CLOUD_READY_{secrets.token_hex(8)}"
+            events = rpc.send({"id": "cloud-prompt", "type": "prompt", "message": f"Reply with exactly {expected}."}, settled=True)
+            if expected not in assistant_text(events):
+                raise AssertionError("Hosted model did not return the one-use validation phrase")
+            health_events = rpc.send({"id": "health", "type": "prompt", "message": "/pify-health"}, notification=True)
+            notices = [item for item in health_events if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+            if len(notices) != 1:
+                raise AssertionError("Pify health was unavailable after the model response")
+            health = json.loads(notices[0]["message"])
+            if health["install"]["status"] != "installed" or health["compatibility"]["status"] != "verified":
+                raise AssertionError("Pify health did not recognize the isolated package")
+        finally:
+            rpc.close()
+    return {"status": "passed", "gateway": "litellm", "protocol": "openai-completions", "piVersion": version, "platform": os.uname().sysname}
+
+
+def fixture_main() -> None:
     local = start_server("local")
     cloud = start_server("cloud")
+    litellm = start_server("litellm")
     local_running = True
     try:
         with tempfile.TemporaryDirectory(prefix="pify-model-smoke-") as fixture:
@@ -166,14 +252,47 @@ def main() -> None:
                 assert health["compatibility"]["status"] == "verified"
             finally:
                 rpc.close()
+        report = validate_litellm(f"http://127.0.0.1:{litellm.server_port}/v1", "fixture-litellm", "fixture-key")
+        assert report["status"] == "passed"
+        assert all(value not in json.dumps(report) for value in ("fixture-key", "fixture-litellm", "127.0.0.1"))
+        assert litellm.requests == [("/v1/chat/completions", "fixture-litellm")]
+        try:
+            validate_litellm("http://example.com/v1", "fixture-litellm", "fixture-key")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Live validation accepted an unencrypted remote endpoint")
     finally:
         if local_running:
             local.shutdown()
             local.server_close()
         cloud.shutdown()
         cloud.server_close()
-    print(f"Pify local and Anthropic provider smoke passed on {os.uname().sysname}")
+        litellm.shutdown()
+        litellm.server_close()
+    print(f"Pify local, Anthropic, and LiteLLM-compatible provider smoke passed on {os.uname().sysname}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--live-litellm", action="store_true", help="prompt for a private gateway key and test one hosted chat model")
+    args = parser.parse_args()
+    if not args.live_litellm:
+        fixture_main()
+        return 0
+    if not sys.stdin.isatty():
+        parser.error("--live-litellm requires an interactive terminal for hidden key input")
+    base_url = input("LiteLLM OpenAI base URL (ending /v1): ").strip()
+    model = input("Hosted chat model alias: ").strip()
+    key = getpass.getpass("LiteLLM virtual key (hidden): ")
+    try:
+        report = validate_litellm(base_url, model, key)
+    except Exception as error:
+        print(f"Pify live cloud validation failed ({type(error).__name__}); no endpoint, key, or response details printed.", file=sys.stderr)
+        return 1
+    print(json.dumps(report, sort_keys=True))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

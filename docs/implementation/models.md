@@ -36,8 +36,20 @@ Use Pi's `/login` flow and choose Anthropic, or set `ANTHROPIC_API_KEY` before s
 
 The CI fixture selects `anthropic` through Pi's RPC `set_model`, sends a prompt through the Messages protocol, and checks the response. It uses a loopback protocol server and a fixture key; it does not call Anthropic's live service. A live account and credential are required to verify the hosted path on a user's machine.
 
+## Private hosted-model validation through LiteLLM
+
+An owner with a LiteLLM virtual key and one hosted chat model can run this optional check from the repository with Pi 1.4.0 on `PATH`:
+
+```sh
+python3 scripts/smoke_pi_models.py --live-litellm
+```
+
+The command prompts for the LiteLLM OpenAI-compatible base URL ending in `/v1`, the exact model alias exposed by the proxy, and the virtual key. Key input is hidden. The command installs the private Pify package only into a temporary Pi agent directory, writes a temporary `models.json` that refers to the key through an environment variable, sends one short prompt through Pi, checks `/pify-health`, and removes the fixture. It does not use or change the active Pi directory. A non-loopback endpoint must use HTTPS. The output contains status, gateway, protocol, Pi version, and platform; it excludes the key, URL, model alias, and response text.
+
+A passing response proves that Pi can use the selected LiteLLM route. The owner must separately confirm that this model alias routes to a hosted provider; a loopback proxy alone does not establish a cloud backend. The live command is not run in CI and must not be run with a key in a shell argument, repository file, or issue comment. Record only redacted evidence in the MVP gate issue. The ordinary fixture smoke also exercises this validation path against a loopback server with a dummy key.
+
 ## Availability and evidence
 
 Stopping LM Studio makes that local endpoint unavailable. It does not block Pi's cloud model selection or Pify's `/pify-health` command. The CI fixture stops its local endpoint, then completes an Anthropic-protocol prompt and a health check. The same smoke runs on macOS and Linux with Pi 1.4.0. A separate macOS test used a real LM Studio server and a locally loaded model at an 8,192-token context; Pi returned `READY`. Pify's package does not download models or edit `models.json`.
 
-Sources: [Pi model selection and compatible endpoints](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/models.md), [Pi provider authentication](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/providers.md), [LM Studio OpenAI-compatible endpoints](https://lmstudio.ai/docs/developer/openai-compat), [LM Studio model listing](https://lmstudio.ai/docs/developer/openai-compat/models).
+Sources: [Pi model selection and compatible endpoints](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/models.md), [Pi model configuration](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/models-configuration.md), [Pi provider authentication](https://github.com/earendil-works/pi/blob/v1.4.0/packages/coding-agent/docs/providers.md), [LM Studio OpenAI-compatible endpoints](https://lmstudio.ai/docs/developer/openai-compat), [LM Studio model listing](https://lmstudio.ai/docs/developer/openai-compat/models), [LiteLLM gateway quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start).
