@@ -212,6 +212,32 @@ def main() -> None:
         check_tui(workspace, env)
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
+
+        run_pi(["remove", str(PACKAGE_ROOT)], workspace, env)
+        if str(PACKAGE_ROOT) in run_pi(["list"], workspace, env):
+            raise AssertionError("Pify remained in Pi's package list after removal")
+        settings_after_remove = json.loads((agent / "settings.json").read_text())
+        if settings_after_remove.get("packages"):
+            raise AssertionError(f"Pi retained Pify's package declaration: {settings_after_remove}")
+        if user_skill.read_bytes() != user_skill_before:
+            raise AssertionError("Pi package removal changed the existing user skill")
+        after_remove = run_pi(
+            ["--offline", "--no-mcp", "--no-session", "--mode", "rpc"],
+            workspace,
+            env,
+            '{"id":"commands","type":"get_commands"}\n',
+        )
+        command_responses = [
+            item for item in (json.loads(line) for line in after_remove.splitlines())
+            if item.get("id") == "commands" and item.get("success") is True
+        ]
+        if len(command_responses) != 1:
+            raise AssertionError(f"Pi did not return commands after removal: {after_remove}")
+        command_names = {item["name"] for item in command_responses[0]["data"]["commands"]}
+        if "pify-health" in command_names or "skill:pify-test-first" in command_names:
+            raise AssertionError(f"Pify commands remained after removal: {sorted(command_names)}")
+        if "skill:pify-debug" not in command_names:
+            raise AssertionError("Pi package removal hid the existing user skill")
         native_files = {path.name for path in agent.iterdir()}
         if native_files != {"auth.json", "models-store.json", "settings.json", "skills"}:
             raise AssertionError(f"Unexpected agent configuration files: {sorted(native_files)}")
