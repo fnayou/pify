@@ -46,7 +46,9 @@ python3 scripts/smoke_pi_models.py --live-litellm
 
 The command prompts for the LiteLLM OpenAI-compatible base URL ending in `/v1`, the exact model alias exposed by the proxy, and the virtual key. Key input is hidden. The command installs the private Pify package only into a temporary Pi agent directory, writes a temporary `models.json` that refers to the key through an environment variable, sends one short prompt through Pi, checks `/pify-health`, and removes the fixture. It does not use or change the active Pi directory. A non-loopback endpoint must use HTTPS. The output contains status, gateway, protocol, Pi version, and platform; it excludes the key, URL, model alias, and response text.
 
-A passing response proves that Pi can use the selected LiteLLM route. The owner must separately confirm that this model alias routes to a hosted provider; a loopback proxy alone does not establish a cloud backend. The live command is not run in CI and must not be run with a key in a shell argument, repository file, or issue comment. Record only redacted evidence in the MVP gate issue. The ordinary fixture smoke also exercises this validation path against a loopback server with a dummy key.
+A passing response proves that Pi can use the selected LiteLLM API route. LiteLLM owns upstream provider and model routing; Pify does not configure or inspect that backend. For the MVP cloud gate, the owner confirms only that the tested route reaches a hosted model. The live command is not run in CI and must not be run with a key in a shell argument, repository file, or issue comment. Record only redacted evidence in the MVP gate issue. The ordinary fixture smoke also exercises this validation path against a loopback server with a dummy key.
+
+An owner-run check passed on macOS with Pi 1.4.0 on 2026-11-06, using a route the owner confirmed was hosted. The [redacted evidence](https://github.com/fnayou/pify/issues/81#issuecomment-6672093689) contains no endpoint, key, model alias, or upstream provider configuration. This is one platform's live result, not a release claim.
 
 ## Availability and evidence
 
