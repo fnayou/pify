@@ -136,8 +136,14 @@ def main() -> None:
         root = Path(fixture).resolve()
         agent = root / "agent"
         workspace = root / "workspace"
+        other_package = root / "other-package"
         agent.mkdir()
         workspace.mkdir()
+        other_package.mkdir()
+        (other_package / "package.json").write_text(json.dumps({
+            "name": "existing-user-package", "version": "1.0.0", "private": True,
+            "pi": {"extensions": [], "skills": [], "prompts": [], "themes": []},
+        }))
         user_skill = agent / "skills" / "pify-debug" / "SKILL.md"
         user_skill.parent.mkdir(parents=True)
         user_skill.write_text(
@@ -151,6 +157,8 @@ def main() -> None:
         if version != "1.4.0":
             raise AssertionError(f"Pi 1.4.0 fixture required, got {version!r}")
 
+        run_pi(["install", str(other_package)], workspace, env)
+        settings_before_pify = json.loads((agent / "settings.json").read_text())
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
         listing = run_pi(["list"], workspace, env)
         if str(PACKAGE_ROOT) not in listing:
@@ -158,12 +166,12 @@ def main() -> None:
 
         settings = json.loads((agent / "settings.json").read_text())
         packages = settings.get("packages", [])
-        if len(packages) != 1 or not isinstance(packages[0], str):
-            raise AssertionError(f"Expected one local Pi package declaration, got {packages!r}")
-        resolved_package = (agent / packages[0]).resolve()
-        if resolved_package != PACKAGE_ROOT:
+        if len(packages) != 2 or not all(isinstance(source, str) for source in packages):
+            raise AssertionError(f"Expected existing and Pify package declarations, got {packages!r}")
+        resolved_packages = {(agent / source).resolve() for source in packages}
+        if resolved_packages != {other_package, PACKAGE_ROOT}:
             raise AssertionError(
-                f"Pi package declaration resolves to {resolved_package}, expected {PACKAGE_ROOT}"
+                f"Pi package declarations resolve to {resolved_packages}, expected both packages"
             )
         if user_skill.read_bytes() != user_skill_before:
             raise AssertionError("Pi package install changed the existing user skill")
@@ -213,12 +221,16 @@ def main() -> None:
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
 
+        settings_before_remove = json.loads((agent / "settings.json").read_text())
         run_pi(["remove", str(PACKAGE_ROOT)], workspace, env)
         if str(PACKAGE_ROOT) in run_pi(["list"], workspace, env):
             raise AssertionError("Pify remained in Pi's package list after removal")
         settings_after_remove = json.loads((agent / "settings.json").read_text())
-        if settings_after_remove.get("packages"):
-            raise AssertionError(f"Pi retained Pify's package declaration: {settings_after_remove}")
+        expected_settings = {**settings_before_remove, "packages": settings_before_pify["packages"]}
+        if settings_after_remove != expected_settings:
+            raise AssertionError(f"Pi removal changed unrelated settings: {settings_after_remove}")
+        if str(other_package) not in run_pi(["list"], workspace, env):
+            raise AssertionError("Pi removal hid the unrelated package")
         if user_skill.read_bytes() != user_skill_before:
             raise AssertionError("Pi package removal changed the existing user skill")
         after_remove = run_pi(
