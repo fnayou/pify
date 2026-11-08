@@ -11,6 +11,7 @@ import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
+import { formatSetupPreview, previewLocalSetup } from "../src/setup-preview.mjs";
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -19,6 +20,7 @@ const JOB_START_RESOURCE = "jobs/current-workspace";
 export default function (pi) {
   pi.registerFlag("pify-mode", { type: "string", default: "balanced", description: "Pify Safe, Balanced, or Full mode" });
   pi.registerFlag("pify-scope", { type: "string", default: "", description: "Comma-separated exact Pify resource paths" });
+  pi.registerFlag("pify-preflight", { type: "boolean", default: false, description: "Preview Pify setup without selecting the fresh theme" });
 
   const currentPermission = () => permissionContext({
     mode: String(pi.getFlag("pify-mode") ?? "balanced").toLowerCase(),
@@ -50,7 +52,7 @@ export default function (pi) {
 
   pi.on("session_start", async (_event, ctx) => {
     ctx.ui.setStatus("pify", modeLabel(currentPermission()));
-    if (ctx.mode !== "tui") return;
+    if (ctx.mode !== "tui" || pi.getFlag("pify-preflight") === true) return;
     try {
       if (ctx.ui.theme.name === "system" && (await inspectThemeSelection({ agentDir: agentDir() })).usePifyOnFreshStart) {
         const result = ctx.ui.setTheme(PIFY_THEME);
@@ -144,6 +146,26 @@ export default function (pi) {
       }
       const report = await buildHealthReport({ agentDir: agentDir(), projectDir: ctx.cwd, piVersion });
       ctx.ui.notify(ctx.mode === "tui" ? formatHealthReport(report) : JSON.stringify(report), "info");
+    },
+  });
+
+  pi.registerCommand("pify-setup", {
+    description: "Preview the private local Pify package before native Pi installation",
+    handler: async (args, ctx) => {
+      if (args.trim() !== "preview") {
+        ctx.ui.notify("Usage: /pify-setup preview", "warning");
+        return;
+      }
+      if (pi.getFlag("pify-preflight") !== true) {
+        ctx.ui.notify(JSON.stringify({ status: "unavailable", reason: "Start a transient Pi session with --pify-preflight before preview" }), "warning");
+        return;
+      }
+      try {
+        const report = await previewLocalSetup({ agentDir: agentDir() });
+        ctx.ui.notify(ctx.mode === "tui" ? formatSetupPreview(report) : JSON.stringify(report), "info");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
+      }
     },
   });
 
