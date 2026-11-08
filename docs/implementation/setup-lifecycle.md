@@ -14,7 +14,7 @@ The proposed next step is for the user to run `pi install <same-reviewed-source>
 
 ## Optional changes and removal
 
-After installation, any optional Pify-managed change needs a fresh exact preview and explicit choice. `/pify-theme status` and `/pify-theme enable` already cover a later saved theme choice in a terminal. An explicitly enabled theme has a journaled rollback through `/pify-theme rollback`; a later personal theme change blocks that rollback and remains untouched. The approved fresh-theme default also needs a journaled rollback path before this lifecycle is supported. `/pify-workflow enable` is a separate project opt-in, not part of personal package setup. The generic file-adoption module remains internal until a real resource and user need justify its interface.
+After installation, any optional Pify-managed change needs a fresh exact preview and explicit choice. `/pify-theme status` and `/pify-theme enable` cover a later saved theme choice in a terminal. Both an explicitly enabled theme and the approved fresh-theme default have a journaled rollback through `/pify-theme rollback`; a later personal theme change blocks rollback and remains untouched. `/pify-workflow enable` is a separate project opt-in, not part of personal package setup. The generic file-adoption module remains internal until a real resource and user need justify its interface.
 
 If a Pify-managed change fails, the ordinary session must report the failed target and recovery state. The user checks `/pify-health` and the relevant status command, then retries rollback only when the recorded digest or prior theme still matches. A drifted file or theme remains in place with a conflict result for manual review. The current package has no regular-file adoption target and therefore no file conflict approval to request; a future target must use the existing exact-path preview and approval rules before it is added to this lifecycle. If native `pi install` fails, inspect `pi list` and Pi's own error before retrying; Pify cannot claim transactional recovery for Pi's package manager.
 
@@ -25,7 +25,7 @@ Headless Pify commands must return the existing structured `clarification_requir
 ## Gaps before this can be supported
 
 - The local preflight reports declared resources and agent-level collisions, but it does not verify project precedence, full package content, npm/git origin, or an unchanged source at `pi install` time. The isolated Pi 1.4.0 smoke must pass on macOS and Linux before this slice has cross-platform evidence.
-- First ordinary interactive startup selects the Pify theme when no theme key exists; the preflight flag suppresses this only in the transient preview. The automatic choice still has no theme journal to roll back. Preserve #30's fresh default while adding a recoverable selection record.
+- First ordinary interactive startup selects the Pify theme when no theme key exists; the preflight flag suppresses this only in the transient preview. The automatic choice now has a private rollback record, but the full setup and removal journey still needs integrated proof.
 - `/pify-health` currently recognizes a local-path package declaration only. It needs source-aware identity checks before an npm or git distribution can report install status accurately.
 - No supported published source, user setup guide, or tested package update/recovery path exists. Keep the first usable release blocked by #81 and #55.
 

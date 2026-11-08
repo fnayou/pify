@@ -95,6 +95,19 @@ def main() -> None:
         fresh_saved = json.loads((fresh_agent / "settings.json").read_text())
         if fresh_saved.get("theme") != "pify":
             raise AssertionError(f"Fresh TUI did not save Pify theme: {fresh_saved.get('theme')!r}")
+        fresh_journal = json.loads((fresh_agent / "pify-state" / "theme-selection.json").read_text())
+        if len(fresh_journal["transactions"]) != 1 or fresh_journal["transactions"][0]["approvalSource"] != "fresh-default" or fresh_journal["transactions"][0]["previous"] != {"present": False}:
+            raise AssertionError(f"Fresh TUI did not journal the automatic selection: {fresh_journal}")
+        fresh_status = notice(rpc(fresh_workspace, fresh_env, {"id": "status", "type": "prompt", "message": "/pify-theme status"}))
+        if not fresh_status.get("rollbackAvailable"):
+            raise AssertionError(f"Fresh theme rollback unavailable: {fresh_status}")
+        fresh_rollback = notice(rpc(fresh_workspace, fresh_env, {"id": "rollback", "type": "prompt", "message": "/pify-theme rollback"}, scope=SCOPE))
+        if fresh_rollback.get("status") != "rolled-back":
+            raise AssertionError(f"Fresh theme rollback failed: {fresh_rollback}")
+        if json.loads((fresh_agent / "settings.json").read_text()).get("theme") != "system":
+            raise AssertionError("Fresh theme rollback did not save system")
+        Path(fresh_env["PIFY_THEME_PROBE"]).unlink()
+        tui_status(fresh_workspace, fresh_env, "system")
 
         temporary_agent, temporary_workspace, temporary_env = fixture(root, "temporary", {})
         tui_status(temporary_workspace, temporary_env, "dark", theme_option="dark")
