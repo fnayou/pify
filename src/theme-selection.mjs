@@ -74,7 +74,7 @@ function activeTransaction(journal) {
   if (active[0] && (!object(active[0].previous) || typeof active[0].previous.present !== "boolean" ||
       (active[0].previous.present && typeof active[0].previous.value !== "string") ||
       active[0].selected !== PIFY_THEME || typeof active[0].approvedBy !== "string" ||
-      !["tui-confirmation", "explicit-scope"].includes(active[0].approvalSource))) {
+      !["tui-confirmation", "explicit-scope", "fresh-default"].includes(active[0].approvalSource))) {
     throw new Error("Invalid Pify theme transaction");
   }
   return active[0] ?? null;
@@ -120,20 +120,27 @@ export async function inspectThemeSelection({ agentDir }) {
   const { settings } = await readSettings(root);
   const { journal } = await readJournal(root);
   const active = activeTransaction(journal);
+  const hasSavedTheme = Object.hasOwn(settings, "theme");
+  const matchesPrevious = active !== null && (active.previous.present
+    ? settings.theme === active.previous.value
+    : !hasSavedTheme);
   return {
-    theme: Object.hasOwn(settings, "theme") ? settings.theme : null,
-    usePifyOnFreshStart: !Object.hasOwn(settings, "theme"),
-    rollbackAvailable: active !== null && settings.theme === PIFY_THEME,
+    theme: hasSavedTheme ? settings.theme : null,
+    usePifyOnFreshStart: !hasSavedTheme,
+    rollbackAvailable: active !== null && (settings.theme === PIFY_THEME || matchesPrevious),
   };
 }
 
 /** Persist an explicitly authorized theme choice; journal the previous setting first. */
 export async function selectPifyTheme({ agentDir, permission, approvalSource = "explicit-scope" }) {
-  if (!["tui-confirmation", "explicit-scope"].includes(approvalSource)) throw new Error("Invalid Pify theme approval source");
+  if (!["tui-confirmation", "explicit-scope", "fresh-default"].includes(approvalSource)) throw new Error("Invalid Pify theme approval source");
   const decision = authorizePifyAction({ permission, action: { kind: "theme-select", targets: [THEME_SETTING_RESOURCE] } });
   if (decision.outcome !== "allowed") return decision;
   const root = await agentRoot(agentDir);
   const snapshot = await readSettings(root);
+  if (approvalSource === "fresh-default" && Object.hasOwn(snapshot.settings, "theme")) {
+    throw new Error("Fresh theme requires no saved choice");
+  }
   const location = await readJournal(root);
   const active = activeTransaction(location.journal);
   if (active) {
@@ -173,7 +180,7 @@ export async function rollbackPifyTheme({ agentDir, permission }) {
   const settings = { ...snapshot.settings };
   if (active.previous.present) settings.theme = active.previous.value;
   else settings.theme = "system";
-  if (!matchesPrevious) await writeSettings(snapshot, settings);
+  if (!matchesPrevious || !active.previous.present) await writeSettings(snapshot, settings);
   active.status = "rolled-back";
   await writeJournal(location);
   return { status: "rolled-back", theme: active.previous.present ? active.previous.value : "system" };

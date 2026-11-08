@@ -27,6 +27,42 @@ test("fresh selection is available without modifying saved settings", async (t) 
   await assert.rejects(fs.stat(path.join(agentDir, "pify-state")), { code: "ENOENT" });
 });
 
+test("fresh default journals the missing theme and can be rolled back", async (t) => {
+  const { agentDir, settingsPath } = await fixture(t, { packages: ["pify"], footerLink: "user-footer" });
+  const selected = await selectPifyTheme({ agentDir, permission, approvalSource: "fresh-default" });
+  assert.equal(selected.status, "selected");
+  const journal = JSON.parse(await fs.readFile(path.join(agentDir, "pify-state", "theme-selection.json"), "utf8"));
+  assert.equal(journal.transactions[0].approvalSource, "fresh-default");
+  assert.deepEqual(journal.transactions[0].previous, { present: false });
+  assert.equal((await inspectThemeSelection({ agentDir })).rollbackAvailable, true);
+  assert.equal((await rollbackPifyTheme({ agentDir, permission })).status, "rolled-back");
+  assert.deepEqual(JSON.parse(await fs.readFile(settingsPath, "utf8")), { packages: ["pify"], footerLink: "user-footer", theme: "system" });
+  assert.equal((await inspectThemeSelection({ agentDir })).usePifyOnFreshStart, false);
+});
+
+test("fresh default refuses a saved personal theme", async (t) => {
+  const { agentDir, settingsPath } = await fixture(t, { theme: "personal", footerLink: "user-footer" });
+  const before = await fs.readFile(settingsPath);
+  await assert.rejects(selectPifyTheme({ agentDir, permission, approvalSource: "fresh-default" }), /Fresh theme requires no saved choice/);
+  assert.deepEqual(await fs.readFile(settingsPath), before);
+  await assert.rejects(fs.stat(path.join(agentDir, "pify-state")), { code: "ENOENT" });
+});
+
+test("failed fresh write leaves a recoverable journal without changing settings", async (t) => {
+  const { agentDir, settingsPath } = await fixture(t, { packages: ["pify"] });
+  await fs.mkdir(path.join(agentDir, "pify-state"), { mode: 0o700 });
+  await fs.chmod(agentDir, 0o500);
+  try {
+    await assert.rejects(selectPifyTheme({ agentDir, permission, approvalSource: "fresh-default" }), { code: "EACCES" });
+  } finally {
+    await fs.chmod(agentDir, 0o700);
+  }
+  assert.equal(Object.hasOwn(JSON.parse(await fs.readFile(settingsPath, "utf8")), "theme"), false);
+  assert.equal((await inspectThemeSelection({ agentDir })).rollbackAvailable, true);
+  assert.equal((await rollbackPifyTheme({ agentDir, permission })).status, "rolled-back");
+  assert.equal(JSON.parse(await fs.readFile(settingsPath, "utf8")).theme, "system");
+});
+
 test("approved personal theme change records prior choice and restores it without touching footer", async (t) => {
   const { agentDir, settingsPath } = await fixture(t, { packages: ["pify"], theme: "personal", footerLink: "user-footer" });
   const denied = await selectPifyTheme({ agentDir, permission: permissionContext() });

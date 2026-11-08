@@ -264,6 +264,13 @@ def main() -> None:
             raise AssertionError("Pify health check changed the existing user skill")
 
         check_tui(workspace, env)
+        rollback_records = run_command_rpc(
+            workspace, env, "/pify-theme rollback", "theme-rollback",
+            ["--pify-scope", "settings.json"], require_response=False,
+        )
+        rollback_notices = [item for item in rollback_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+        if len(rollback_notices) != 1 or json.loads(rollback_notices[0]["message"]).get("status") != "rolled-back":
+            raise AssertionError(f"Fresh theme could not be rolled back before Pi removal: {rollback_records}")
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
 
@@ -297,7 +304,7 @@ def main() -> None:
         if "skill:pify-debug" not in command_names:
             raise AssertionError("Pi package removal hid the existing user skill")
         native_files = {path.name for path in agent.iterdir()}
-        if native_files != {"auth.json", "models-store.json", "settings.json", "skills"}:
+        if native_files != {"auth.json", "models-store.json", "settings.json", "skills", "pify-state"}:
             raise AssertionError(f"Unexpected agent configuration files: {sorted(native_files)}")
         print(f"Pify native Pi package smoke passed on {os.uname().sysname}")
 
