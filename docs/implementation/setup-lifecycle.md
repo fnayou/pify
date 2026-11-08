@@ -1,6 +1,6 @@
 # Proposed native Pi setup lifecycle
 
-**Status:** Design proposal for [#89](https://github.com/fnayou/pify/issues/89), part of the open [MVP gate #81](https://github.com/fnayou/pify/issues/81). Pify is a bootstrap project. This is not a supported installation guide or a release claim.
+**Status:** The design from [#89](https://github.com/fnayou/pify/issues/89) has a private local-package preflight slice in [#91](https://github.com/fnayou/pify/issues/91). The [MVP gate #81](https://github.com/fnayou/pify/issues/81) remains open. Pify is a bootstrap project; this is not a supported installation guide or a release claim.
 
 ## Ownership and entrypoints
 
@@ -8,9 +8,9 @@ Pi owns package registration and resource loading. Its documented commands are `
 
 Pify owns only side effects performed by its extension after Pi loads it. Current examples are theme selection in agent settings and an opt-in project workflow file. The regular-file adoption module has no selected package resource to copy into the agent directory. Package resources must stay in Pi's package loader; copying them solely to use the adoption module would create duplicate ownership and a second removal path.
 
-The proposed pre-install entrypoint is a read-only `/pify-setup preview` command in a transient Pi session started with `pi -e <reviewed-source> --pify-preflight`. Pi documents `-e` as loading a package for one invocation without adding it to settings. The proposed `--pify-preflight` flag suppresses Pify's fresh-theme selection for this preview session only. The command would report the exact source and package resources, the Pi package declaration that `pi install` would add, user resource collisions and their load precedence, and the planned first-session Pify theme selection when no saved theme exists. It must not call `pi install`, write Pify state, or ask for credentials. Transient Pi startup itself may initialize Pi-owned files; this is a Pify no-write promise, not a whole-process no-write promise. Running an extension executes its code, so the source must be reviewed before preflight.
+The private local-package preflight uses `/pify-setup preview` in a transient Pi session started with `pi -e <local-package-path> --pify-preflight`. Pi documents `-e` as loading a package for one invocation without adding it to settings. The flag suppresses Pify's fresh-theme selection for this preview session only. The command reports the loaded package directory, a digest of its manifest and declared resources, current agent-level resource collisions, the planned Pi package declaration, and the first-session theme outcome. It marks resource precedence, project resources, and npm/git origin as unverified. It does not call `pi install`, write Pify state, or ask for credentials. Transient Pi startup itself may initialize Pi-owned files; this is a Pify no-write promise, not a whole-process no-write promise. Running an extension executes its code, so the source must be reviewed before preflight.
 
-The user then explicitly runs `pi install <same-reviewed-source>`, starts an ordinary Pi session, and runs `/pify-health`. The source identity and reviewed content digest must still match the preview; a changed local path or ref requires a new preview. `pi install` changes Pi's package declaration outside Pify's permission gate. Pify does not claim to approve or roll back Pi's internal package operation. [Issue #30](https://github.com/fnayou/pify/issues/30) requires the first ordinary interactive session to select the Pify theme when Pi has no saved theme. A user who declines that default must make an explicit `system` or personal theme choice through Pi before the first installed session. On an existing Pi setup, a same-name user skill must remain untouched and retain the observed Pi precedence; no Pify file adoption is needed for that collision.
+The proposed next step is for the user to run `pi install <same-reviewed-source>`, start an ordinary Pi session, and run `/pify-health`. The source identity and reviewed content must still match the preview; a changed local path or ref requires a new preview. This matching is not yet enforced at install time, and the reported digest does not cover imported implementation files outside the declared resources. `pi install` changes Pi's package declaration outside Pify's permission gate. Pify does not claim to approve or roll back Pi's internal package operation. [Issue #30](https://github.com/fnayou/pify/issues/30) requires the first ordinary interactive session to select the Pify theme when Pi has no saved theme. A user who declines that default must make an explicit `system` or personal theme choice through Pi before the first installed session. On an existing Pi setup, a same-name user skill must remain untouched and retain the observed Pi precedence; no Pify file adoption is needed for that collision.
 
 ## Optional changes and removal
 
@@ -24,12 +24,12 @@ Headless Pify commands must return the existing structured `clarification_requir
 
 ## Gaps before this can be supported
 
-- `/pify-setup preview` and `--pify-preflight` do not exist. Their report, collision check, source digest check, and no-write behavior need implementation and isolated Pi 1.4.0 proof.
-- First interactive startup currently selects the Pify theme when no theme key exists. Transient interactive preview would trigger that selection without the proposed preflight flag. The automatic choice also has no theme journal to roll back. Preserve #30's fresh default while adding preview suppression and a recoverable selection record.
+- The local preflight reports declared resources and agent-level collisions, but it does not verify project precedence, full package content, npm/git origin, or an unchanged source at `pi install` time. The isolated Pi 1.4.0 smoke must pass on macOS and Linux before this slice has cross-platform evidence.
+- First ordinary interactive startup selects the Pify theme when no theme key exists; the preflight flag suppresses this only in the transient preview. The automatic choice still has no theme journal to roll back. Preserve #30's fresh default while adding a recoverable selection record.
 - `/pify-health` currently recognizes a local-path package declaration only. It needs source-aware identity checks before an npm or git distribution can report install status accurately.
 - No supported published source, user setup guide, or tested package update/recovery path exists. Keep the first usable release blocked by #81 and #55.
 
-Do not use the proposed transient preflight on an active Pi setup before its flag and no-write behavior are implemented and verified.
+The local preflight is development evidence, not permission to install Pify into an active Pi setup.
 
 ## Acceptance plan
 

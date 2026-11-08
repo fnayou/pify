@@ -36,16 +36,19 @@ def snapshot(directory: Path) -> dict[str, bytes]:
     return {str(path.relative_to(directory)): path.read_bytes() for path in directory.rglob("*") if path.is_file()}
 
 
-def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
+def run_command_rpc(
+    workspace: Path, env: dict[str, str], message: str, request_id: str,
+    extra_args: list[str] | None = None, require_response: bool = True,
+) -> list[dict]:
     process = subprocess.Popen(
-        ["pi", "--offline", "--no-mcp", "--no-session", "--mode", "rpc"],
+        ["pi", "--offline", "--no-mcp", "--no-session", "--mode", "rpc", *(extra_args or [])],
         cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
     records = []
     pending = bytearray()
     try:
         assert process.stdin is not None and process.stdout is not None
-        process.stdin.write(b'{"id":"health","type":"prompt","message":"/pify-health"}\n')
+        process.stdin.write((json.dumps({"id": request_id, "type": "prompt", "message": message}) + "\n").encode())
         process.stdin.flush()
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
@@ -59,12 +62,12 @@ def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
                     line, _, remainder = pending.partition(b"\n")
                     pending = bytearray(remainder)
                     records.append(json.loads(line))
-            if any(item.get("id") == "health" and item.get("type") == "response" for item in records) and any(
-                item.get("type") == "extension_ui_request" and item.get("method") == "notify" for item in records
-            ):
+            notified = any(item.get("type") == "extension_ui_request" and item.get("method") == "notify" for item in records)
+            responded = any(item.get("id") == request_id and item.get("type") == "response" for item in records)
+            if notified and (responded or not require_response):
                 break
         else:
-            raise AssertionError(f"Pify health RPC timed out: {records}")
+            raise AssertionError(f"Pify command RPC timed out: {records}")
     finally:
         if process.stdin is not None:
             process.stdin.close()
@@ -75,15 +78,19 @@ def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
             process.wait(timeout=5)
     if process.returncode != 0:
         assert process.stderr is not None
-        raise AssertionError(f"Pify health RPC failed ({process.returncode}): {process.stderr.read().decode()}")
+        raise AssertionError(f"Pify command RPC failed ({process.returncode}): {process.stderr.read().decode()}")
     return records
 
 
-def check_tui(workspace: Path, env: dict[str, str]) -> None:
+def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
+    return run_command_rpc(workspace, env, "/pify-health", "health")
+
+
+def check_tui(workspace: Path, env: dict[str, str], extra_args: list[str] | None = None) -> None:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     process = subprocess.Popen(
-        ["pi", "--offline", "--no-mcp", "--no-session"],
+        ["pi", "--offline", "--no-mcp", "--no-session", *(extra_args or [])],
         cwd=workspace,
         env=env,
         stdin=slave,
@@ -159,6 +166,45 @@ def main() -> None:
 
         run_pi(["install", str(other_package)], workspace, env)
         settings_before_pify = json.loads((agent / "settings.json").read_text())
+
+        preflight_args = ["-e", str(PACKAGE_ROOT), "--pify-preflight"]
+        run_pi(["--offline", "--no-mcp", "--no-session", "--mode", "rpc"], workspace, env, '{"id":"warm","type":"get_state"}\n')
+        before_preflight = (snapshot(agent), snapshot(workspace))
+        preflight_records = run_command_rpc(workspace, env, "/pify-setup preview", "preview", preflight_args, require_response=False)
+        preflight_notices = [item for item in preflight_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+        if len(preflight_notices) != 1:
+            raise AssertionError(f"Expected one Pify setup preview: {preflight_records}")
+        preview = json.loads(preflight_notices[0]["message"])
+        if preview["schema"] != "pify.setup-preview/v1" or preview["piRegistration"]["action"] != "add_local_package_declaration":
+            raise AssertionError(f"Unexpected setup preview: {preview}")
+        if preview["firstInteractiveTheme"]["action"] != "select_pify" or preview["source"]["path"] != str(PACKAGE_ROOT):
+            raise AssertionError(f"Unexpected setup source or theme: {preview}")
+        if len(preview["source"]["declaredResourceDigest"]) != 64 or {item["relativePath"] for item in preview["package"]["resources"]} != {
+            "extensions/pify-permissions.js", "skills/pify-debug", "skills/pify-test-first", "themes/pify.json"
+        }:
+            raise AssertionError(f"Setup preview omitted declared resources: {preview}")
+        collisions = {item["relativePath"]: item["collision"]["status"] for item in preview["package"]["resources"]}
+        if collisions.get("skills/pify-debug") != "present" or collisions.get("skills/pify-test-first") != "none":
+            raise AssertionError(f"User skill collision not reported: {collisions}")
+        if (snapshot(agent), snapshot(workspace)) != before_preflight:
+            raise AssertionError("Pify setup preflight changed the isolated fixture")
+        if str(PACKAGE_ROOT) in run_pi(["list"], workspace, env):
+            raise AssertionError("Transient Pify preflight registered the package")
+
+        fresh_agent = root / "fresh-preflight-agent"
+        fresh_agent.mkdir()
+        fresh_env = {**env, "PI_CODING_AGENT_DIR": str(fresh_agent)}
+        fresh_records = run_command_rpc(workspace, fresh_env, "/pify-setup preview", "preview", preflight_args, require_response=False)
+        fresh_notices = [item for item in fresh_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+        if len(fresh_notices) != 1 or json.loads(fresh_notices[0]["message"])["piRegistration"]["action"] != "add_local_package_declaration":
+            raise AssertionError(f"Fresh setup preflight failed: {fresh_records}")
+        check_tui(workspace, fresh_env, ["-e", str(PACKAGE_ROOT), "--pify-preflight"])
+        fresh_settings = fresh_agent / "settings.json"
+        if fresh_settings.exists() and "theme" in json.loads(fresh_settings.read_text()):
+            raise AssertionError("Transient Pify preflight selected the fresh theme")
+        if (fresh_agent / "pify-state").exists():
+            raise AssertionError("Transient Pify preflight wrote Pify state")
+
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
         listing = run_pi(["list"], workspace, env)
         if str(PACKAGE_ROOT) not in listing:
