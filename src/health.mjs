@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { listOwnedFiles } from "./managed-state.mjs";
 import { inspectProjectWorkflow } from "./project-workflow.mjs";
+import { inspectThemeSelection } from "./theme-selection.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const SUPPORTED_PI_VERSION = "1.4.0";
@@ -45,6 +46,23 @@ async function bundledSkills(install, warnings) {
   }
 }
 
+async function themeSelectionStatus(agentDir, warnings) {
+  try {
+    const selection = await inspectThemeSelection({ agentDir });
+    return { status: "available", savedTheme: selection.theme, rollbackAvailable: selection.rollbackAvailable };
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      try {
+        await fs.lstat(path.join(agentDir, "pify-state"));
+      } catch (stateError) {
+        if (stateError.code === "ENOENT") return { status: "not_configured", savedTheme: null, rollbackAvailable: false };
+      }
+    }
+    warnings.push("Pify theme recovery state could not be read");
+    return { status: "unavailable", savedTheme: null, rollbackAvailable: false };
+  }
+}
+
 /** Build a read-only report. Unknown or damaged state is reported without claiming ownership. */
 export async function buildHealthReport({ agentDir, projectDir = null, piVersion = null }) {
   if (typeof agentDir !== "string" || !path.isAbsolute(agentDir)) throw new Error("Absolute Pi agent directory is required");
@@ -66,6 +84,7 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
     }
   }
   const install = await installStatus(agentDir, warnings);
+  const themeSelection = await themeSelectionStatus(agentDir, warnings);
   let projectWorkflow = { status: "not_checked" };
   if (projectDir !== null) {
     try {
@@ -85,6 +104,7 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
     install,
     pifyPackageVersion: version,
     bundledSkills: await bundledSkills(install, warnings),
+    themeSelection,
     projectWorkflow,
     inventory: {
       status: inventoryStatus,
@@ -101,6 +121,9 @@ export function formatHealthReport(report) {
     `Pi ${report.compatibility.observedPiVersion ?? "unknown"}: ${report.compatibility.status} (target ${report.compatibility.targetPiVersion})`,
     `Pify package: ${report.install.status}; metadata version ${report.pifyPackageVersion ?? "unknown"}`,
     `Bundled skills: ${report.bundledSkills.length}`,
+    report.themeSelection.status === "available"
+      ? `Saved theme: ${report.themeSelection.savedTheme ?? "none"}; Pify rollback: ${report.themeSelection.rollbackAvailable ? "available" : "unavailable"}`
+      : `Theme recovery: ${report.themeSelection.status}`,
     `Project workflow: ${report.projectWorkflow.status}`,
     `Managed resources: ${report.inventory.managed.length}`,
   ];
