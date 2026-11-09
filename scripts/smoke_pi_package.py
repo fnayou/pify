@@ -116,6 +116,67 @@ def rollback_theme(workspace: Path, env: dict[str, str]) -> None:
         raise AssertionError(f"Fresh theme could not be rolled back before Pi removal: {records}")
 
 
+def check_failed_theme_recovery(workspace: Path, agent: Path, env: dict[str, str]) -> None:
+    settings_file = agent / "settings.json"
+    journal_file = agent / "pify-state" / "theme-selection.json"
+    settings_before = settings_file.read_bytes()
+    journal_before = json.loads(journal_file.read_text())
+    if json.loads(settings_before).get("theme") != "system":
+        raise AssertionError("Theme failure fixture requires the restored system choice")
+    original_mode = agent.stat().st_mode & 0o777
+    rpc = RpcSession(workspace, env, extra_args=["--pify-scope", "settings.json"])
+    try:
+        rpc.send({"id": "theme-ready", "type": "get_state"})
+        os.chmod(agent, 0o500)
+        try:
+            records = rpc.send({"id": "theme-failure", "type": "prompt", "message": "/pify-theme enable"}, notification=True)
+        finally:
+            os.chmod(agent, original_mode)
+    finally:
+        rpc.close()
+    notices = [item for item in records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(notices) != 1:
+        raise AssertionError(f"Failed theme command did not report a result: {records}")
+    failure = json.loads(notices[0]["message"])
+    if failure.get("status") != "conflict" or "EACCES" not in failure.get("reason", ""):
+        raise AssertionError(f"Theme write did not fail after journal preparation: {failure}")
+    if settings_file.read_bytes() != settings_before:
+        raise AssertionError("Failed theme change modified the prior user setting")
+    journal = json.loads(journal_file.read_text())
+    if len(journal["transactions"]) != len(journal_before["transactions"]) + 1 or journal["transactions"][-1]["status"] != "active":
+        raise AssertionError(f"Failed theme change left no recoverable journal: {journal}")
+    if journal["transactions"][-1]["previous"] != {"present": True, "value": "system"}:
+        raise AssertionError(f"Failed theme change recorded the wrong prior choice: {journal}")
+
+    before_health = (snapshot(agent), snapshot(workspace))
+    health_records = run_health_rpc(workspace, env)
+    health_notices = [item for item in health_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(health_notices) != 1:
+        raise AssertionError(f"Pify health was unavailable after theme failure: {health_records}")
+    health = json.loads(health_notices[0]["message"])
+    if health["install"]["status"] != "installed" or health["compatibility"]["status"] != "verified":
+        raise AssertionError(f"Pify health reported the wrong state after theme failure: {health}")
+    if (snapshot(agent), snapshot(workspace)) != before_health:
+        raise AssertionError("Pify health changed the fixture after theme failure")
+
+    before_status = (snapshot(agent), snapshot(workspace))
+    status_records = run_command_rpc(workspace, env, "/pify-theme status", "theme-status", require_response=False)
+    status_notices = [item for item in status_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(status_notices) != 1:
+        raise AssertionError(f"Theme recovery status was unavailable: {status_records}")
+    status = json.loads(status_notices[0]["message"])
+    if status.get("theme") != "system" or status.get("rollbackAvailable") is not True:
+        raise AssertionError(f"Theme recovery was not visible in the ordinary session: {status}")
+    if (snapshot(agent), snapshot(workspace)) != before_status:
+        raise AssertionError("Theme recovery status changed the isolated fixture")
+
+    rollback_theme(workspace, env)
+    if settings_file.read_bytes() != settings_before:
+        raise AssertionError("Theme recovery changed the prior user setting")
+    if json.loads(journal_file.read_text())["transactions"][-1]["status"] != "rolled-back":
+        raise AssertionError("Theme recovery left an active journal")
+
+
 def check_tui(
     workspace: Path, env: dict[str, str], extra_args: list[str] | None = None,
     expected_theme: str | None = None,
@@ -441,6 +502,7 @@ def main() -> None:
         check_tui(workspace, env, expected_theme="pify")
         models_before = check_installed_models_and_permissions(workspace, agent, env)
         rollback_theme(workspace, env)
+        check_failed_theme_recovery(workspace, agent, env)
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
 
