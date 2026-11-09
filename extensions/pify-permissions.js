@@ -55,7 +55,6 @@ export default function (pi) {
     if (ctx.mode !== "tui" || pi.getFlag("pify-preflight") === true) return;
     try {
       if (ctx.ui.theme.name === "system" && (await inspectThemeSelection({ agentDir: agentDir() })).usePifyOnFreshStart) {
-        if (!ctx.ui.getTheme(PIFY_THEME)) throw new Error("Pify theme is not loaded");
         await selectPifyTheme({ agentDir: agentDir(), permission: themePermission(currentPermission()), approvalSource: "fresh-default" });
         const result = ctx.ui.setTheme(PIFY_THEME);
         if (!result.success) ctx.ui.notify(`Pify theme unavailable: ${result.error}`, "warning");
