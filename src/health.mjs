@@ -8,8 +8,9 @@ import { inspectThemeSelection } from "./theme-selection.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const SUPPORTED_PI_VERSION = "1.4.0";
+const NPM_SOURCE = "npm:@fnayou/pify";
 
-async function installStatus(agentDir, warnings) {
+async function installStatus(agentDir, packageRoot, metadata, warnings) {
   let settings;
   try {
     settings = JSON.parse(await fs.readFile(path.join(agentDir, "settings.json"), "utf8"));
@@ -19,14 +20,30 @@ async function installStatus(agentDir, warnings) {
     return { status: "unknown", evidence: "settings unavailable" };
   }
   if (!Array.isArray(settings?.packages)) return { status: "not_installed", evidence: "no package declarations" };
-  const declared = settings.packages.some((entry) => typeof entry === "string" && path.resolve(agentDir, entry) === PACKAGE_ROOT);
-  return { status: declared ? "installed" : "not_installed", evidence: declared ? "matching Pi package declaration" : "no matching Pi package declaration" };
+  const sources = settings.packages.map((entry) => typeof entry === "string" ? entry : entry?.source).filter((source) => typeof source === "string");
+  const local = sources.some((source) => !/^(npm:|git:|https?:\/\/)/.test(source) && path.resolve(agentDir, source) === packageRoot);
+  if (local) return { status: "installed", sourceKind: "local", evidence: "matching Pi package declaration" };
+
+  const npmSources = sources.filter((source) => source === NPM_SOURCE || source.startsWith(`${NPM_SOURCE}@`));
+  if (npmSources.length === 0) return { status: "not_installed", evidence: "no matching Pi package declaration" };
+  let managedPath = false;
+  try {
+    const agentRoot = await fs.realpath(agentDir);
+    managedPath = await fs.realpath(packageRoot) === path.join(agentRoot, "npm", "node_modules", "@fnayou", "pify");
+  } catch {
+    // A missing or redirected managed package cannot establish source identity.
+  }
+  if (metadata?.name === "@fnayou/pify" && typeof metadata.version === "string" && managedPath &&
+      new Set(npmSources).size === 1 && npmSources[0] === `${NPM_SOURCE}@${metadata.version}`) {
+    return { status: "installed", sourceKind: "npm", evidence: "matching pinned npm declaration and Pi-managed package path" };
+  }
+  return { status: "unknown", sourceKind: "npm", evidence: "Pify npm declaration does not match a pinned version and managed package path" };
 }
 
-async function bundledSkills(install, warnings) {
+async function bundledSkills(install, warnings, packageRoot) {
   if (install.status !== "installed") return [];
   try {
-    const catalog = JSON.parse(await fs.readFile(path.join(PACKAGE_ROOT, "skills", "catalog.json"), "utf8"));
+    const catalog = JSON.parse(await fs.readFile(path.join(packageRoot, "skills", "catalog.json"), "utf8"));
     if (catalog.schema !== "pify.skills/v1" || !Array.isArray(catalog.skills)) throw new Error("invalid skill catalog");
     const skills = [];
     for (const item of catalog.skills) {
@@ -35,7 +52,7 @@ async function bundledSkills(install, warnings) {
           typeof item.sourceVersion !== "string" || item.license !== "MIT") {
         throw new Error("invalid skill provenance");
       }
-      const stat = await fs.lstat(path.join(PACKAGE_ROOT, item.path, "SKILL.md"));
+      const stat = await fs.lstat(path.join(packageRoot, item.path, "SKILL.md"));
       if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`invalid skill file: ${item.path}`);
       skills.push({ name: item.name, source: item.source, sourceVersion: item.sourceVersion, license: item.license });
     }
@@ -64,12 +81,13 @@ async function themeSelectionStatus(agentDir, warnings) {
 }
 
 /** Build a read-only report. Unknown or damaged state is reported without claiming ownership. */
-export async function buildHealthReport({ agentDir, projectDir = null, piVersion = null }) {
+export async function buildHealthReport({ agentDir, projectDir = null, piVersion = null, packageRoot = PACKAGE_ROOT }) {
   if (typeof agentDir !== "string" || !path.isAbsolute(agentDir)) throw new Error("Absolute Pi agent directory is required");
+  if (typeof packageRoot !== "string" || !path.isAbsolute(packageRoot)) throw new Error("Absolute Pify package directory is required");
   const warnings = [];
-  let version = null;
+  let metadata = null;
   try {
-    version = JSON.parse(await fs.readFile(path.join(PACKAGE_ROOT, "package.json"), "utf8")).version ?? null;
+    metadata = JSON.parse(await fs.readFile(path.join(packageRoot, "package.json"), "utf8"));
   } catch (error) {
     warnings.push(`Pify package metadata could not be read: ${error.message}`);
   }
@@ -83,7 +101,7 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
       warnings.push(`Pify ownership state could not be read: ${error.message}`);
     }
   }
-  const install = await installStatus(agentDir, warnings);
+  const install = await installStatus(agentDir, packageRoot, metadata, warnings);
   const themeSelection = await themeSelectionStatus(agentDir, warnings);
   let projectWorkflow = { status: "not_checked" };
   if (projectDir !== null) {
@@ -102,8 +120,8 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
       status: piVersion === SUPPORTED_PI_VERSION ? "verified" : "unverified",
     },
     install,
-    pifyPackageVersion: version,
-    bundledSkills: await bundledSkills(install, warnings),
+    pifyPackageVersion: metadata?.version ?? null,
+    bundledSkills: await bundledSkills(install, warnings, packageRoot),
     themeSelection,
     projectWorkflow,
     inventory: {
@@ -119,7 +137,7 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
 export function formatHealthReport(report) {
   const lines = [
     `Pi ${report.compatibility.observedPiVersion ?? "unknown"}: ${report.compatibility.status} (target ${report.compatibility.targetPiVersion})`,
-    `Pify package: ${report.install.status}; metadata version ${report.pifyPackageVersion ?? "unknown"}`,
+    `Pify package: ${report.install.status}${report.install.sourceKind ? ` (${report.install.sourceKind})` : ""}; metadata version ${report.pifyPackageVersion ?? "unknown"}`,
     `Bundled skills: ${report.bundledSkills.length}`,
     report.themeSelection.status === "available"
       ? `Saved theme: ${report.themeSelection.savedTheme ?? "none"}; Pify rollback: ${report.themeSelection.rollbackAvailable ? "available" : "unavailable"}`
