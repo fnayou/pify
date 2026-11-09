@@ -7,6 +7,10 @@ const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", impor
 const KINDS = ["extensions", "skills", "prompts", "themes"];
 const MAX_RESOURCE_FILES = 100;
 const MAX_RESOURCE_BYTES = 2 * 1024 * 1024;
+const RUNTIME_ROOTS = ["extensions", "src", "skills", "themes", "templates", "prompts"];
+const MAX_RUNTIME_FILES = 200;
+const MAX_RUNTIME_BYTES = 8 * 1024 * 1024;
+const MAX_RUNTIME_ENTRIES = 300;
 
 function object(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -56,6 +60,40 @@ async function digestResource(root, relativePath) {
   }
   await visit(relativePath);
   if (fileCount === 0) throw new Error(`Empty package resource: ${relativePath}`);
+  return hash.digest("hex");
+}
+
+async function digestRuntimeSource(root) {
+  const hash = createHash("sha256").update("pify.runtime-source/v1\0");
+  let fileCount = 0;
+  let byteCount = 0;
+  let entryCount = 0;
+  async function visit(relativePath) {
+    entryCount += 1;
+    if (entryCount > MAX_RUNTIME_ENTRIES) throw new Error("Runtime source preview limit exceeded");
+    const stat = await fs.lstat(path.join(root, relativePath));
+    if (stat.isSymbolicLink()) throw new Error(`Symlinked runtime source: ${relativePath}`);
+    if (stat.isDirectory()) {
+      hash.update(`directory\0${relativePath}\0${stat.mode & 0o777}\0`);
+      for (const name of (await fs.readdir(path.join(root, relativePath))).sort()) {
+        await visit(`${relativePath}/${name}`);
+      }
+      return;
+    }
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error(`Unsafe runtime source: ${relativePath}`);
+    const { bytes, mode } = await regularBytes(path.join(root, relativePath));
+    fileCount += 1;
+    byteCount += bytes.length;
+    if (fileCount > MAX_RUNTIME_FILES || byteCount > MAX_RUNTIME_BYTES) throw new Error("Runtime source preview limit exceeded");
+    hash.update(`file\0${relativePath}\0${mode}\0${bytes.length}\0`);
+    hash.update(bytes);
+    hash.update("\0");
+  }
+  await visit("package.json");
+  for (const directory of RUNTIME_ROOTS) {
+    if (await lstatOrNull(path.join(root, directory))) await visit(directory);
+    else hash.update(`missing\0${directory}\0`);
+  }
   return hash.digest("hex");
 }
 
@@ -126,10 +164,12 @@ export async function previewLocalSetup({ agentDir, packageRoot = PACKAGE_ROOT }
     }
   }
   const savedTheme = Object.hasOwn(settings, "theme") ? settings.theme : null;
+  const runtimeDigest = await digestRuntimeSource(root);
+  const reviewCode = createHash("sha256").update(`pify.local-source-review/v1\0${root}\0${runtimeDigest}`).digest("hex");
   return {
     schema: "pify.setup-preview/v1",
     status: "preview",
-    source: { kind: "loaded_local_directory", path: root, declaredResourceDigest: packageHash.digest("hex"), origin: "not_verified" },
+    source: { kind: "loaded_local_directory", path: root, declaredResourceDigest: packageHash.digest("hex"), runtimeDigest, reviewCode, origin: "not_verified" },
     package: { name: manifest.name, version: manifest.version, private: true, resources },
     piRegistration: { scope: "agent", action: alreadyDeclared ? "already_declared" : "add_local_package_declaration", owner: "pi" },
     firstInteractiveTheme: savedTheme === null ? { action: "select_pify", reason: "no saved theme" } : { action: "preserve", savedTheme },
@@ -138,11 +178,28 @@ export async function previewLocalSetup({ agentDir, packageRoot = PACKAGE_ROOT }
   };
 }
 
+/** Compare a preview review code with the currently loaded and declared local package. */
+export async function verifyLocalSetup({ agentDir, expectedReviewCode, packageRoot = PACKAGE_ROOT }) {
+  if (typeof expectedReviewCode !== "string" || !/^[a-f0-9]{64}$/.test(expectedReviewCode)) {
+    throw new Error("Expected a 64-character setup review code");
+  }
+  const preview = await previewLocalSetup({ agentDir, packageRoot });
+  const declared = preview.piRegistration.action === "already_declared";
+  return {
+    schema: "pify.setup-verification/v1",
+    status: !declared ? "not_installed" : preview.source.reviewCode === expectedReviewCode ? "verified" : "mismatch",
+    source: { kind: preview.source.kind, path: preview.source.path, runtimeDigest: preview.source.runtimeDigest },
+    piRegistration: preview.piRegistration,
+  };
+}
+
 export function formatSetupPreview(report) {
   const lines = [
     `Pify setup preview: ${report.package.name} ${report.package.version} (private local package)`,
     `Loaded directory: ${report.source.path}`,
     `Declared resource digest: ${report.source.declaredResourceDigest}`,
+    `Runtime source digest: ${report.source.runtimeDigest}`,
+    `Review code: ${report.source.reviewCode}`,
     `Pi registration: ${report.piRegistration.action}`,
     `First interactive theme: ${report.firstInteractiveTheme.action}${report.firstInteractiveTheme.savedTheme ? ` (${report.firstInteractiveTheme.savedTheme})` : ""}`,
   ];
@@ -151,4 +208,8 @@ export function formatSetupPreview(report) {
   }
   lines.push("Project resources and npm/git origin: not checked. No installation performed.");
   return lines.join("\n");
+}
+
+export function formatSetupVerification(report) {
+  return `Pify local source: ${report.status}; loaded directory: ${report.source.path}; runtime digest: ${report.source.runtimeDigest}; Pi registration: ${report.piRegistration.action}`;
 }
