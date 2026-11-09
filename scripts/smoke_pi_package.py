@@ -4,6 +4,7 @@ import fcntl
 import json
 import os
 import pty
+import secrets
 import select
 import struct
 import subprocess
@@ -11,6 +12,9 @@ import tempfile
 import termios
 import time
 from pathlib import Path
+
+from smoke_pi_models import RpcSession, assistant_text, start_server
+from smoke_pi_permissions import permission_result
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -138,6 +142,65 @@ def check_tui(
                 process.kill()
                 process.wait(timeout=5)
         os.close(master)
+
+
+def check_installed_models_and_permissions(workspace: Path, agent: Path, env: dict[str, str]) -> bytes:
+    local = start_server("local")
+    cloud = start_server("litellm")
+    local_running = True
+    try:
+        models = {"providers": {
+            "pify-local-fixture": {
+                "baseUrl": f"http://127.0.0.1:{local.server_port}/v1", "api": "openai-completions",
+                "apiKey": "fixture-key", "models": [{"id": "fixture-local", "contextWindow": 8192, "maxTokens": 256}],
+            },
+            "pify-litellm-fixture": {
+                "baseUrl": f"http://127.0.0.1:{cloud.server_port}/v1", "api": "openai-completions",
+                "apiKey": "fixture-key", "authHeader": True,
+                "models": [{"id": "fixture-litellm", "contextWindow": 8192, "maxTokens": 256}],
+            },
+        }}
+        models_file = agent / "models.json"
+        models_file.write_text(json.dumps(models))
+        models_before = models_file.read_bytes()
+        rpc = RpcSession(workspace, env)
+        try:
+            rpc.send({"id": "local-model", "type": "set_model", "provider": "pify-local-fixture", "modelId": "fixture-local"})
+            local_events = rpc.send({"id": "local-prompt", "type": "prompt", "message": "Reply READY_LOCAL."}, settled=True)
+            if assistant_text(local_events) != "READY_LOCAL" or local.requests != [("/v1/chat/completions", "fixture-local")]:
+                raise AssertionError("Local model failed after Pify package setup")
+
+            local.shutdown()
+            local.server_close()
+            local_running = False
+            rpc.send({"id": "cloud-model", "type": "set_model", "provider": "pify-litellm-fixture", "modelId": "fixture-litellm"})
+            marker = f"PIFY_CLOUD_READY_{secrets.token_hex(8)}"
+            cloud_events = rpc.send({"id": "cloud-prompt", "type": "prompt", "message": f"Reply with exactly {marker}."}, settled=True)
+            if assistant_text(cloud_events) != marker or cloud.requests != [("/v1/chat/completions", "fixture-litellm")]:
+                raise AssertionError("LiteLLM-compatible model failed after local endpoint stopped")
+
+            health_events = rpc.send({"id": "integrated-health", "type": "prompt", "message": "/pify-health"}, notification=True)
+            notices = [item for item in health_events if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+            if len(notices) != 1 or json.loads(notices[0]["message"])["install"]["status"] != "installed":
+                raise AssertionError("Pify health unavailable after model selection")
+        finally:
+            rpc.close()
+
+        permission_scope = "skills/pify-test-first/SKILL.md"
+        other_skill = "skills/pify-debug/SKILL.md"
+        for mode, expected in (("safe", "denied"), ("balanced", "approval_required"), ("full", "approval_required")):
+            result = permission_result(workspace, env, mode, permission_scope, other_skill)
+            if result["outcome"] != expected or result["mode"] != mode:
+                raise AssertionError(f"Headless {mode} permission result changed after setup: {result}")
+        if models_file.read_bytes() != models_before:
+            raise AssertionError("Pify changed the user's model configuration")
+        return models_before
+    finally:
+        if local_running:
+            local.shutdown()
+            local.server_close()
+        cloud.shutdown()
+        cloud.server_close()
 
 
 def main() -> None:
@@ -281,6 +344,7 @@ def main() -> None:
             raise AssertionError("Pify health check changed the existing user skill")
 
         check_tui(workspace, env, expected_theme="pify")
+        models_before = check_installed_models_and_permissions(workspace, agent, env)
         rollback_records = run_command_rpc(
             workspace, env, "/pify-theme rollback", "theme-rollback",
             ["--pify-scope", "settings.json"], require_response=False,
@@ -303,6 +367,8 @@ def main() -> None:
             raise AssertionError("Pi removal hid the unrelated package")
         if user_skill.read_bytes() != user_skill_before:
             raise AssertionError("Pi package removal changed the existing user skill")
+        if (agent / "models.json").read_bytes() != models_before:
+            raise AssertionError("Pi package removal changed the user's model configuration")
         after_remove = run_pi(
             ["--offline", "--no-mcp", "--no-session", "--mode", "rpc"],
             workspace,
@@ -321,7 +387,7 @@ def main() -> None:
         if "skill:pify-debug" not in command_names:
             raise AssertionError("Pi package removal hid the existing user skill")
         native_files = {path.name for path in agent.iterdir()}
-        if native_files != {"auth.json", "models-store.json", "settings.json", "skills", "pify-state"}:
+        if native_files != {"auth.json", "models-store.json", "models.json", "settings.json", "skills", "pify-state"}:
             raise AssertionError(f"Unexpected agent configuration files: {sorted(native_files)}")
         print(f"Pify native Pi package smoke passed on {os.uname().sysname}")
 
