@@ -86,7 +86,10 @@ def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
     return run_command_rpc(workspace, env, "/pify-health", "health")
 
 
-def check_tui(workspace: Path, env: dict[str, str], extra_args: list[str] | None = None) -> None:
+def check_tui(
+    workspace: Path, env: dict[str, str], extra_args: list[str] | None = None,
+    expected_theme: str | None = None,
+) -> None:
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
     process = subprocess.Popen(
@@ -100,6 +103,7 @@ def check_tui(workspace: Path, env: dict[str, str], extra_args: list[str] | None
     )
     os.close(slave)
     output = bytearray()
+    theme_ready = expected_theme is None
     deadline = time.monotonic() + 10
     try:
         while time.monotonic() < deadline:
@@ -108,10 +112,23 @@ def check_tui(workspace: Path, env: dict[str, str], extra_args: list[str] | None
             ready, _, _ = select.select([master], [], [], 0.2)
             if ready:
                 output.extend(os.read(master, 65536))
-            if output and time.monotonic() < deadline - 8:
-                break
+            if output:
+                if expected_theme is None and time.monotonic() < deadline - 8:
+                    break
+                if expected_theme is not None:
+                    agent = Path(env["PI_CODING_AGENT_DIR"])
+                    journal = agent / "pify-state" / "theme-selection.json"
+                    try:
+                        saved = json.loads((agent / "settings.json").read_text())
+                    except (FileNotFoundError, json.JSONDecodeError):
+                        saved = {}
+                    if saved.get("theme") == expected_theme and journal.is_file():
+                        theme_ready = True
+                        break
         if not output:
             raise AssertionError("Pi TUI produced no terminal output within 10 seconds")
+        if not theme_ready:
+            raise AssertionError(f"Pi TUI did not save the journaled {expected_theme} theme: {output[-500:]!r}")
     finally:
         if process.poll() is None:
             process.terminate()
@@ -263,7 +280,7 @@ def main() -> None:
         if user_skill.read_bytes() != user_skill_before:
             raise AssertionError("Pify health check changed the existing user skill")
 
-        check_tui(workspace, env)
+        check_tui(workspace, env, expected_theme="pify")
         rollback_records = run_command_rpc(
             workspace, env, "/pify-theme rollback", "theme-rollback",
             ["--pify-scope", "settings.json"], require_response=False,
