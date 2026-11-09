@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { applyAdoption, previewAdoption } from "../src/adoption.mjs";
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { permissionContext } from "../src/permissions.mjs";
+import { rollbackPifyTheme, selectPifyTheme } from "../src/theme-selection.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 
@@ -43,9 +44,56 @@ test("fresh check is read-only and useful without settings or optional services"
   const report = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
   assert.equal(report.compatibility.status, "verified");
   assert.equal(report.install.status, "not_installed");
+  assert.deepEqual(report.themeSelection, { status: "not_configured", savedTheme: null, rollbackAvailable: false });
   assert.deepEqual(report.inventory.managed, []);
   assert.equal(report.optionalServices, "not_checked");
   assert.deepEqual(await snapshot(agentDir), before);
+});
+
+test("health reports theme rollback availability without changing its journal", async (t) => {
+  const agentDir = await fixture(t);
+  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [PACKAGE_ROOT], theme: "system" }));
+  const permission = permissionContext({ authorizedPaths: ["settings.json"] });
+  await selectPifyTheme({ agentDir, permission });
+  const before = await snapshot(agentDir);
+  const active = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
+  assert.deepEqual(active.themeSelection, { status: "available", savedTheme: "pify", rollbackAvailable: true });
+  assert.match(formatHealthReport(active), /Saved theme: pify; Pify rollback: available/);
+  assert.deepEqual(await snapshot(agentDir), before);
+
+  await rollbackPifyTheme({ agentDir, permission });
+  const afterRollback = await snapshot(agentDir);
+  const restored = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
+  assert.deepEqual(restored.themeSelection, { status: "available", savedTheme: "system", rollbackAvailable: false });
+  assert.deepEqual(await snapshot(agentDir), afterRollback);
+
+  await selectPifyTheme({ agentDir, permission });
+  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [PACKAGE_ROOT], theme: "personal" }));
+  const drifted = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
+  assert.deepEqual(drifted.themeSelection, { status: "available", savedTheme: "personal", rollbackAvailable: false });
+});
+
+test("damaged theme journal reports unavailable without echoing its contents", async (t) => {
+  const agentDir = await fixture(t);
+  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [PACKAGE_ROOT], theme: "pify" }));
+  await fs.mkdir(path.join(agentDir, "pify-state"), { mode: 0o700 });
+  await fs.writeFile(path.join(agentDir, "pify-state", "theme-selection.json"), '{"secret":"PRIVATE_TEST_VALUE",', { mode: 0o600 });
+  const before = await snapshot(agentDir);
+  const report = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
+  assert.deepEqual(report.themeSelection, { status: "unavailable", savedTheme: null, rollbackAvailable: false });
+  assert.equal(JSON.stringify(report).includes("PRIVATE_TEST_VALUE"), false);
+  assert.deepEqual(await snapshot(agentDir), before);
+
+  const journal = path.join(agentDir, "pify-state", "theme-selection.json");
+  const outside = path.join(path.dirname(agentDir), "private-journal.json");
+  await fs.writeFile(outside, "PRIVATE_TEST_VALUE");
+  await fs.rm(journal);
+  await fs.symlink(outside, journal);
+  const linkedBefore = await snapshot(agentDir);
+  const linked = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
+  assert.deepEqual(linked.themeSelection, { status: "unavailable", savedTheme: null, rollbackAvailable: false });
+  assert.equal(JSON.stringify(linked).includes("PRIVATE_TEST_VALUE"), false);
+  assert.deepEqual(await snapshot(agentDir), linkedBefore);
 });
 
 test("adopted check lists only provenance-matched files and their recorded version", async (t) => {
@@ -77,9 +125,10 @@ test("damaged settings and ownership report uncertainty without changing the fix
   const report = await buildHealthReport({ agentDir, piVersion: "1.5.0" });
   assert.equal(report.compatibility.status, "unverified");
   assert.equal(report.install.status, "unknown");
+  assert.deepEqual(report.themeSelection, { status: "unavailable", savedTheme: null, rollbackAvailable: false });
   assert.equal(report.inventory.status, "unavailable");
   assert.deepEqual(report.inventory.managed, []);
-  assert.equal(report.warnings.length, 2);
+  assert.equal(report.warnings.length, 3);
   assert.deepEqual(await snapshot(agentDir), before);
 });
 

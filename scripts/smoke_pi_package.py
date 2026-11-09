@@ -156,6 +156,8 @@ def check_failed_theme_recovery(workspace: Path, agent: Path, env: dict[str, str
     health = json.loads(health_notices[0]["message"])
     if health["install"]["status"] != "installed" or health["compatibility"]["status"] != "verified":
         raise AssertionError(f"Pify health reported the wrong state after theme failure: {health}")
+    if health["themeSelection"] != {"status": "available", "savedTheme": "system", "rollbackAvailable": True}:
+        raise AssertionError(f"Pify health did not expose theme recovery after failure: {health}")
     if (snapshot(agent), snapshot(workspace)) != before_health:
         raise AssertionError("Pify health changed the fixture after theme failure")
 
@@ -175,6 +177,16 @@ def check_failed_theme_recovery(workspace: Path, agent: Path, env: dict[str, str
         raise AssertionError("Theme recovery changed the prior user setting")
     if json.loads(journal_file.read_text())["transactions"][-1]["status"] != "rolled-back":
         raise AssertionError("Theme recovery left an active journal")
+    after_rollback = (snapshot(agent), snapshot(workspace))
+    restored_records = run_health_rpc(workspace, env)
+    restored_notices = [item for item in restored_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(restored_notices) != 1:
+        raise AssertionError(f"Pify health was unavailable after theme rollback: {restored_records}")
+    restored = json.loads(restored_notices[0]["message"])
+    if restored["themeSelection"] != {"status": "available", "savedTheme": "system", "rollbackAvailable": False}:
+        raise AssertionError(f"Pify health still offered theme rollback after recovery: {restored}")
+    if (snapshot(agent), snapshot(workspace)) != after_rollback:
+        raise AssertionError("Pify health changed the fixture after theme rollback")
 
 
 def check_tui(
