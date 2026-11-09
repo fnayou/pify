@@ -11,6 +11,8 @@ import { permissionContext } from "../src/permissions.mjs";
 import { rollbackPifyTheme, selectPifyTheme } from "../src/theme-selection.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const GIT_COMMIT = "a".repeat(40);
+const GIT_SOURCE = `git:github.com/fnayou/pify@${GIT_COMMIT}`;
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "pify-health-test-"));
@@ -24,6 +26,17 @@ async function npmFixture(t) {
   const agentDir = await fixture(t);
   const packageRoot = path.join(agentDir, "npm", "node_modules", "@fnayou", "pify");
   await fs.mkdir(path.join(packageRoot, "skills"), { recursive: true });
+  await fs.writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@fnayou/pify", version: "2026.11.4", private: true }));
+  await fs.writeFile(path.join(packageRoot, "skills", "catalog.json"), JSON.stringify({ schema: "pify.skills/v1", skills: [] }));
+  return { agentDir, packageRoot };
+}
+
+async function gitFixture(t) {
+  const agentDir = await fixture(t);
+  const packageRoot = path.join(agentDir, "git", "github.com", "fnayou", "pify");
+  await fs.mkdir(path.join(packageRoot, ".git"), { recursive: true });
+  await fs.mkdir(path.join(packageRoot, "skills"));
+  await fs.writeFile(path.join(packageRoot, ".git", "HEAD"), `${GIT_COMMIT}\n`);
   await fs.writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@fnayou/pify", version: "2026.11.4", private: true }));
   await fs.writeFile(path.join(packageRoot, "skills", "catalog.json"), JSON.stringify({ schema: "pify.skills/v1", skills: [] }));
   return { agentDir, packageRoot };
@@ -172,6 +185,68 @@ test("health refuses a pinned npm declaration loaded outside Pi's managed path",
   const report = await buildHealthReport({ agentDir, packageRoot });
   assert.equal(report.install.status, "unknown");
   assert.equal(report.install.sourceKind, "npm");
+  assert.deepEqual(await snapshot(agentDir), before);
+});
+
+test("health recognizes a pinned Git declaration at Pi's managed checkout", async (t) => {
+  const { agentDir, packageRoot } = await gitFixture(t);
+  const settings = path.join(agentDir, "settings.json");
+  for (const declaration of [GIT_SOURCE, { source: GIT_SOURCE, skills: [] }]) {
+    await fs.writeFile(settings, JSON.stringify({ packages: [declaration] }));
+    const before = await snapshot(agentDir);
+    const report = await buildHealthReport({ agentDir, packageRoot, piVersion: "1.4.0" });
+    assert.deepEqual(report.install, { status: "installed", sourceKind: "git", evidence: "matching pinned Git declaration and Pi-managed checkout" });
+    assert.match(formatHealthReport(report), /Pify package: installed \(git\)/);
+    assert.equal(report.pifyPackageVersion, "2026.11.4");
+    assert.deepEqual(await snapshot(agentDir), before);
+  }
+});
+
+test("health keeps uncertain Git declarations and checkout mismatches unknown", async (t) => {
+  const { agentDir, packageRoot } = await gitFixture(t);
+  const settings = path.join(agentDir, "settings.json");
+  const cases = [
+    ["git:github.com/fnayou/pify"],
+    ["git:github.com/fnayou/pify@main"],
+    [`git:github.com/fnayou/pify@${"b".repeat(40)}`],
+    [GIT_SOURCE, `git:github.com/fnayou/pify@${"b".repeat(40)}`],
+    [GIT_SOURCE, "npm:@fnayou/pify@2026.11.4"],
+  ];
+  for (const sources of cases) {
+    await fs.writeFile(settings, JSON.stringify({ packages: sources }));
+    assert.deepEqual((await buildHealthReport({ agentDir, packageRoot })).install, {
+      status: "unknown", sourceKind: "git", evidence: "Pify Git declaration does not match a pinned commit and managed checkout",
+    });
+  }
+  await fs.writeFile(settings, JSON.stringify({ packages: [GIT_SOURCE] }));
+  await fs.writeFile(path.join(packageRoot, ".git", "HEAD"), "ref: refs/heads/main\n");
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "unknown");
+  await fs.writeFile(path.join(packageRoot, ".git", "HEAD"), `${GIT_COMMIT}\n${"x".repeat(100)}`);
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "unknown");
+  await fs.writeFile(path.join(packageRoot, ".git", "HEAD"), `${GIT_COMMIT}\n`);
+  await fs.writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@fnayou/other", version: "2026.11.4" }));
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "unknown");
+  await fs.writeFile(settings, JSON.stringify({ packages: ["git:github.com/fnayou/pify-extra@main"] }));
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "not_installed");
+});
+
+test("health refuses redirected Git checkout and Git metadata", async (t) => {
+  const { agentDir, packageRoot } = await gitFixture(t);
+  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [GIT_SOURCE] }));
+  const head = path.join(packageRoot, ".git", "HEAD");
+  const outsideHead = path.join(path.dirname(agentDir), "outside-head");
+  await fs.rename(head, outsideHead);
+  await fs.symlink(outsideHead, head);
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "unknown");
+  await fs.rm(head);
+  await fs.writeFile(head, `${GIT_COMMIT}\n`);
+  const outsidePackage = path.join(path.dirname(agentDir), "outside-package");
+  await fs.rename(packageRoot, outsidePackage);
+  await fs.symlink(outsidePackage, packageRoot);
+  const before = await snapshot(agentDir);
+  const report = await buildHealthReport({ agentDir, packageRoot });
+  assert.equal(report.install.status, "unknown");
+  assert.equal(report.install.sourceKind, "git");
   assert.deepEqual(await snapshot(agentDir), before);
 });
 

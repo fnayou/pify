@@ -9,6 +9,7 @@ import { inspectThemeSelection } from "./theme-selection.mjs";
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const SUPPORTED_PI_VERSION = "1.4.0";
 const NPM_SOURCE = "npm:@fnayou/pify";
+const GIT_SOURCE = "git:github.com/fnayou/pify";
 
 async function installStatus(agentDir, packageRoot, metadata, warnings) {
   let settings;
@@ -24,7 +25,32 @@ async function installStatus(agentDir, packageRoot, metadata, warnings) {
   const local = sources.some((source) => !/^(npm:|git:|https?:\/\/)/.test(source) && path.resolve(agentDir, source) === packageRoot);
   if (local) return { status: "installed", sourceKind: "local", evidence: "matching Pi package declaration" };
 
+  const gitSources = sources.filter((source) => source === GIT_SOURCE || source.startsWith(`${GIT_SOURCE}@`));
   const npmSources = sources.filter((source) => source === NPM_SOURCE || source.startsWith(`${NPM_SOURCE}@`));
+  if (gitSources.length > 0) {
+    const pinned = gitSources[0].match(/^git:github\.com\/fnayou\/pify@([0-9a-f]{40})$/);
+    let managedPath = false;
+    let detachedHead = null;
+    try {
+      const agentRoot = await fs.realpath(agentDir);
+      managedPath = await fs.realpath(packageRoot) === path.join(agentRoot, "git", "github.com", "fnayou", "pify");
+      if (managedPath) {
+        const gitDirectory = await fs.lstat(path.join(packageRoot, ".git"));
+        const headFile = await fs.lstat(path.join(packageRoot, ".git", "HEAD"));
+        if (gitDirectory.isDirectory() && !gitDirectory.isSymbolicLink() && headFile.isFile() &&
+            !headFile.isSymbolicLink() && headFile.size <= 41) {
+          detachedHead = (await fs.readFile(path.join(packageRoot, ".git", "HEAD"), "utf8")).trimEnd();
+        }
+      }
+    } catch {
+      // A missing or redirected checkout cannot establish source identity.
+    }
+    if (npmSources.length === 0 && gitSources.length === 1 && pinned && metadata?.name === "@fnayou/pify" &&
+        managedPath && detachedHead === pinned[1]) {
+      return { status: "installed", sourceKind: "git", evidence: "matching pinned Git declaration and Pi-managed checkout" };
+    }
+    return { status: "unknown", sourceKind: "git", evidence: "Pify Git declaration does not match a pinned commit and managed checkout" };
+  }
   if (npmSources.length === 0) return { status: "not_installed", evidence: "no matching Pi package declaration" };
   let managedPath = false;
   try {
