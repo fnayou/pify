@@ -414,7 +414,7 @@ def main() -> None:
         if len(fresh_health_responses) != 1 or fresh_health_responses[0].get("data", {}).get("disposition") != "handled" or len(fresh_health_notices) != 1:
             raise AssertionError(f"Fresh Pify health command failed: {fresh_health}")
         fresh_report = json.loads(fresh_health_notices[0]["message"])
-        if fresh_report["install"]["status"] != "installed" or fresh_report["compatibility"]["status"] != "verified":
+        if fresh_report["install"]["status"] != "installed" or fresh_report["install"]["sourceKind"] != "local" or fresh_report["compatibility"]["status"] != "verified":
             raise AssertionError(f"Fresh Pify health reported the wrong state: {fresh_report}")
         if (snapshot(fresh_agent), snapshot(fresh_workspace)) != before_fresh_health:
             raise AssertionError("Fresh Pify health changed the isolated fixture")
@@ -497,7 +497,7 @@ def main() -> None:
         if len(handled) != 1 or handled[0].get("data", {}).get("disposition") != "handled" or len(notices) != 1:
             raise AssertionError(f"Pify health command was not handled: {health_records}")
         report = json.loads(notices[0]["message"])
-        if report["compatibility"]["status"] != "verified" or report["install"]["status"] != "installed" or report["inventory"]["managed"]:
+        if report["compatibility"]["status"] != "verified" or report["install"]["status"] != "installed" or report["install"]["sourceKind"] != "local" or report["inventory"]["managed"]:
             raise AssertionError(f"Unexpected Pify health report: {report}")
         bundled = {item["name"]: item for item in report["bundledSkills"]}
         if set(bundled) != {"pify-debug", "pify-test-first"} or any(

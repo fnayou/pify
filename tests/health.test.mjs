@@ -20,6 +20,15 @@ async function fixture(t) {
   return agentDir;
 }
 
+async function npmFixture(t) {
+  const agentDir = await fixture(t);
+  const packageRoot = path.join(agentDir, "npm", "node_modules", "@fnayou", "pify");
+  await fs.mkdir(path.join(packageRoot, "skills"), { recursive: true });
+  await fs.writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@fnayou/pify", version: "2026.11.4", private: true }));
+  await fs.writeFile(path.join(packageRoot, "skills", "catalog.json"), JSON.stringify({ schema: "pify.skills/v1", skills: [] }));
+  return { agentDir, packageRoot };
+}
+
 async function snapshot(root) {
   const entries = [];
   async function visit(directory) {
@@ -113,6 +122,56 @@ test("adopted check lists only provenance-matched files and their recorded versi
   assert.equal(JSON.stringify(report).includes("user.md"), false);
   assert.equal(JSON.stringify(report).includes("credential-secret"), false);
   assert.match(formatHealthReport(report), /skills\/pify.md \(2026.11.4\)/);
+  assert.deepEqual(await snapshot(agentDir), before);
+
+  await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: PACKAGE_ROOT, skills: [] }] }));
+  const filtered = await buildHealthReport({ agentDir, piVersion: "1.4.0" });
+  assert.equal(filtered.install.status, "installed");
+  assert.equal(filtered.install.sourceKind, "local");
+});
+
+test("health recognizes an exact pinned npm declaration at Pi's managed path", async (t) => {
+  const { agentDir, packageRoot } = await npmFixture(t);
+  const settings = path.join(agentDir, "settings.json");
+  await fs.writeFile(settings, JSON.stringify({ packages: [{ source: "npm:@fnayou/pify@2026.11.4", skills: [] }] }));
+  const before = await snapshot(agentDir);
+  const report = await buildHealthReport({ agentDir, packageRoot, piVersion: "1.4.0" });
+  assert.deepEqual(report.install, { status: "installed", sourceKind: "npm", evidence: "matching pinned npm declaration and Pi-managed package path" });
+  assert.match(formatHealthReport(report), /Pify package: installed \(npm\)/);
+  assert.equal(report.pifyPackageVersion, "2026.11.4");
+  assert.equal(JSON.stringify(report).includes("npm:@fnayou/pify@2026.11.4"), false);
+  assert.deepEqual(await snapshot(agentDir), before);
+
+  await fs.writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@fnayou/other", version: "2026.11.4" }));
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "unknown");
+});
+
+test("health does not claim an unpinned, mismatched, or unrelated npm package is installed", async (t) => {
+  const { agentDir, packageRoot } = await npmFixture(t);
+  const settings = path.join(agentDir, "settings.json");
+  for (const source of ["npm:@fnayou/pify", "npm:@fnayou/pify@2026.11.5", "npm:@fnayou/pify@^2026.11.4"]) {
+    await fs.writeFile(settings, JSON.stringify({ packages: [source] }));
+    const report = await buildHealthReport({ agentDir, packageRoot });
+    assert.equal(report.install.status, "unknown", source);
+    assert.equal(report.install.sourceKind, "npm", source);
+  }
+  await fs.writeFile(settings, JSON.stringify({ packages: ["npm:@fnayou/pify@2026.11.4", "npm:@fnayou/pify@2026.11.5"] }));
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "unknown");
+  await fs.writeFile(settings, JSON.stringify({ packages: ["npm:@fnayou/pify-extra@2026.11.4"] }));
+  assert.equal((await buildHealthReport({ agentDir, packageRoot })).install.status, "not_installed");
+});
+
+test("health refuses a pinned npm declaration loaded outside Pi's managed path", async (t) => {
+  const { agentDir, packageRoot } = await npmFixture(t);
+  const settings = path.join(agentDir, "settings.json");
+  await fs.writeFile(settings, JSON.stringify({ packages: ["npm:@fnayou/pify@2026.11.4"] }));
+  const outside = path.join(path.dirname(agentDir), "outside-package");
+  await fs.rename(packageRoot, outside);
+  await fs.symlink(outside, packageRoot);
+  const before = await snapshot(agentDir);
+  const report = await buildHealthReport({ agentDir, packageRoot });
+  assert.equal(report.install.status, "unknown");
+  assert.equal(report.install.sourceKind, "npm");
   assert.deepEqual(await snapshot(agentDir), before);
 });
 

@@ -26,7 +26,7 @@ Headless Pify commands must return the existing structured `clarification_requir
 
 - The local preflight reports declared resources, runtime files, and agent-level collisions. Post-install verification compares the local path, runtime content, and Pi declaration. It does not verify project precedence, arbitrary repository files, npm/git origin, or unchanged source before Pi loads it. The isolated Pi 1.4.0 smoke exercises the comparison on macOS and Linux.
 - First ordinary interactive startup selects the Pify theme when no theme key exists; the preflight flag suppresses this only in the transient preview. The isolated fresh fixture now checks the private rollback record, restored `system` choice, another ordinary session, and native removal. The supported distribution journey remains unproved.
-- `/pify-health` currently recognizes a local-path package declaration only. It needs source-aware identity checks before an npm or git distribution can report install status accurately.
+- `/pify-health` recognizes local declarations and checks exact pinned personal npm declarations against the loaded package name, version, and Pi-managed npm path. The npm evidence uses synthetic settings; no package has been published or installed from a registry. Git and project-local sources still need identity checks before those distribution paths can report install status accurately.
 - No supported published source, user setup guide, or tested package update/recovery path exists. Keep the first usable release blocked by #81 and #55.
 
 The local preflight is development evidence, not permission to install Pify into an active Pi setup.
