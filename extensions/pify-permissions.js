@@ -11,7 +11,7 @@ import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
-import { formatSetupPreview, previewLocalSetup } from "../src/setup-preview.mjs";
+import { formatSetupPreview, formatSetupVerification, previewLocalSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -151,19 +151,24 @@ export default function (pi) {
   });
 
   pi.registerCommand("pify-setup", {
-    description: "Preview the private local Pify package before native Pi installation",
+    description: "Preview or verify the private local Pify package source",
     handler: async (args, ctx) => {
-      if (args.trim() !== "preview") {
-        ctx.ui.notify("Usage: /pify-setup preview", "warning");
+      const command = args.trim();
+      const verify = /^verify ([a-f0-9]{64})$/.exec(command);
+      if (command !== "preview" && !verify) {
+        ctx.ui.notify("Usage: /pify-setup preview | verify <review-code>", "warning");
         return;
       }
-      if (pi.getFlag("pify-preflight") !== true) {
+      if (command === "preview" && pi.getFlag("pify-preflight") !== true) {
         ctx.ui.notify(JSON.stringify({ status: "unavailable", reason: "Start a transient Pi session with --pify-preflight before preview" }), "warning");
         return;
       }
       try {
-        const report = await previewLocalSetup({ agentDir: agentDir() });
-        ctx.ui.notify(ctx.mode === "tui" ? formatSetupPreview(report) : JSON.stringify(report), "info");
+        const report = verify
+          ? await verifyLocalSetup({ agentDir: agentDir(), expectedReviewCode: verify[1] })
+          : await previewLocalSetup({ agentDir: agentDir() });
+        const formatted = verify ? formatSetupVerification(report) : formatSetupPreview(report);
+        ctx.ui.notify(ctx.mode === "tui" ? formatted : JSON.stringify(report), "info");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
       }

@@ -90,6 +90,22 @@ def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
     return run_command_rpc(workspace, env, "/pify-health", "health")
 
 
+def verify_local_source(workspace: Path, env: dict[str, str], review_code: str) -> None:
+    agent = Path(env["PI_CODING_AGENT_DIR"])
+    before = (snapshot(agent), snapshot(workspace))
+    records = run_command_rpc(
+        workspace, env, f"/pify-setup verify {review_code}", "source-verify", require_response=False,
+    )
+    notices = [item for item in records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(notices) != 1:
+        raise AssertionError(f"Pify source verification did not report a result: {records}")
+    report = json.loads(notices[0]["message"])
+    if report.get("schema") != "pify.setup-verification/v1" or report.get("status") != "verified" or report["source"]["path"] != str(PACKAGE_ROOT):
+        raise AssertionError(f"Installed Pi source differs from the reviewed preview: {report}")
+    if (snapshot(agent), snapshot(workspace)) != before:
+        raise AssertionError("Pify source verification changed the isolated fixture")
+
+
 def rollback_theme(workspace: Path, env: dict[str, str]) -> None:
     records = run_command_rpc(
         workspace, env, "/pify-theme rollback", "theme-rollback",
@@ -269,7 +285,7 @@ def main() -> None:
             raise AssertionError(f"Unexpected setup preview: {preview}")
         if preview["firstInteractiveTheme"]["action"] != "select_pify" or preview["source"]["path"] != str(PACKAGE_ROOT):
             raise AssertionError(f"Unexpected setup source or theme: {preview}")
-        if len(preview["source"]["declaredResourceDigest"]) != 64 or {item["relativePath"] for item in preview["package"]["resources"]} != {
+        if any(len(preview["source"][field]) != 64 for field in ("declaredResourceDigest", "runtimeDigest", "reviewCode")) or {item["relativePath"] for item in preview["package"]["resources"]} != {
             "extensions/pify-permissions.js", "skills/pify-debug", "skills/pify-test-first", "themes/pify.json"
         }:
             raise AssertionError(f"Setup preview omitted declared resources: {preview}")
@@ -297,6 +313,8 @@ def main() -> None:
         fresh_preview = json.loads(fresh_notices[0]["message"])
         if fresh_preview["piRegistration"]["action"] != "add_local_package_declaration" or fresh_preview["firstInteractiveTheme"]["action"] != "select_pify":
             raise AssertionError(f"Fresh setup preview had the wrong plan: {fresh_preview}")
+        if any(len(fresh_preview["source"][field]) != 64 for field in ("runtimeDigest", "reviewCode")):
+            raise AssertionError(f"Fresh setup preview omitted the runtime review code: {fresh_preview}")
         if (snapshot(fresh_agent), snapshot(fresh_workspace)) != fresh_before_preview:
             raise AssertionError("Fresh Pify setup preview changed the isolated fixture")
         check_tui(fresh_workspace, fresh_env, ["-e", str(PACKAGE_ROOT), "--pify-preflight"])
@@ -315,6 +333,7 @@ def main() -> None:
         fresh_packages = fresh_installed_settings.get("packages", [])
         if len(fresh_packages) != 1 or not isinstance(fresh_packages[0], str) or (fresh_agent / fresh_packages[0]).resolve() != PACKAGE_ROOT:
             raise AssertionError(f"Fresh Pi install registered unexpected packages: {fresh_installed_settings}")
+        verify_local_source(fresh_workspace, fresh_env, fresh_preview["source"]["reviewCode"])
         before_fresh_health = (snapshot(fresh_agent), snapshot(fresh_workspace))
         fresh_health = run_health_rpc(fresh_workspace, fresh_env)
         fresh_health_responses = [item for item in fresh_health if item.get("id") == "health" and item.get("type") == "response"]
@@ -374,6 +393,7 @@ def main() -> None:
             raise AssertionError(
                 f"Pi package declarations resolve to {resolved_packages}, expected both packages"
             )
+        verify_local_source(workspace, env, preview["source"]["reviewCode"])
         if user_skill.read_bytes() != user_skill_before:
             raise AssertionError("Pi package install changed the existing user skill")
 
