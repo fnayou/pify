@@ -90,6 +90,16 @@ def run_health_rpc(workspace: Path, env: dict[str, str]) -> list[dict]:
     return run_command_rpc(workspace, env, "/pify-health", "health")
 
 
+def rollback_theme(workspace: Path, env: dict[str, str]) -> None:
+    records = run_command_rpc(
+        workspace, env, "/pify-theme rollback", "theme-rollback",
+        ["--pify-scope", "settings.json"], require_response=False,
+    )
+    notices = [item for item in records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(notices) != 1 or json.loads(notices[0]["message"]).get("status") != "rolled-back":
+        raise AssertionError(f"Fresh theme could not be rolled back before Pi removal: {records}")
+
+
 def check_tui(
     workspace: Path, env: dict[str, str], extra_args: list[str] | None = None,
     expected_theme: str | None = None,
@@ -271,19 +281,84 @@ def main() -> None:
         if str(PACKAGE_ROOT) in run_pi(["list"], workspace, env):
             raise AssertionError("Transient Pify preflight registered the package")
 
-        fresh_agent = root / "fresh-preflight-agent"
+        fresh_agent = root / "fresh-agent"
+        fresh_workspace = root / "fresh-workspace"
         fresh_agent.mkdir()
+        fresh_workspace.mkdir()
+        fresh_note = fresh_workspace / "notes.txt"
+        fresh_note.write_text("Unrelated project note\n")
         fresh_env = {**env, "PI_CODING_AGENT_DIR": str(fresh_agent)}
-        fresh_records = run_command_rpc(workspace, fresh_env, "/pify-setup preview", "preview", preflight_args, require_response=False)
+        run_pi(["--offline", "--no-mcp", "--no-session", "--mode", "rpc"], fresh_workspace, fresh_env, '{"id":"warm","type":"get_state"}\n')
+        fresh_before_preview = (snapshot(fresh_agent), snapshot(fresh_workspace))
+        fresh_records = run_command_rpc(fresh_workspace, fresh_env, "/pify-setup preview", "preview", preflight_args, require_response=False)
         fresh_notices = [item for item in fresh_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
-        if len(fresh_notices) != 1 or json.loads(fresh_notices[0]["message"])["piRegistration"]["action"] != "add_local_package_declaration":
+        if len(fresh_notices) != 1:
             raise AssertionError(f"Fresh setup preflight failed: {fresh_records}")
-        check_tui(workspace, fresh_env, ["-e", str(PACKAGE_ROOT), "--pify-preflight"])
+        fresh_preview = json.loads(fresh_notices[0]["message"])
+        if fresh_preview["piRegistration"]["action"] != "add_local_package_declaration" or fresh_preview["firstInteractiveTheme"]["action"] != "select_pify":
+            raise AssertionError(f"Fresh setup preview had the wrong plan: {fresh_preview}")
+        if (snapshot(fresh_agent), snapshot(fresh_workspace)) != fresh_before_preview:
+            raise AssertionError("Fresh Pify setup preview changed the isolated fixture")
+        check_tui(fresh_workspace, fresh_env, ["-e", str(PACKAGE_ROOT), "--pify-preflight"])
         fresh_settings = fresh_agent / "settings.json"
         if fresh_settings.exists() and "theme" in json.loads(fresh_settings.read_text()):
             raise AssertionError("Transient Pify preflight selected the fresh theme")
         if (fresh_agent / "pify-state").exists():
             raise AssertionError("Transient Pify preflight wrote Pify state")
+        if str(PACKAGE_ROOT) in run_pi(["list"], fresh_workspace, fresh_env):
+            raise AssertionError("Fresh transient preview registered Pify")
+
+        run_pi(["install", str(PACKAGE_ROOT)], fresh_workspace, fresh_env)
+        if str(PACKAGE_ROOT) not in run_pi(["list"], fresh_workspace, fresh_env):
+            raise AssertionError("Fresh Pi install did not register Pify")
+        fresh_installed_settings = json.loads(fresh_settings.read_text())
+        fresh_packages = fresh_installed_settings.get("packages", [])
+        if len(fresh_packages) != 1 or not isinstance(fresh_packages[0], str) or (fresh_agent / fresh_packages[0]).resolve() != PACKAGE_ROOT:
+            raise AssertionError(f"Fresh Pi install registered unexpected packages: {fresh_installed_settings}")
+        before_fresh_health = (snapshot(fresh_agent), snapshot(fresh_workspace))
+        fresh_health = run_health_rpc(fresh_workspace, fresh_env)
+        fresh_health_responses = [item for item in fresh_health if item.get("id") == "health" and item.get("type") == "response"]
+        fresh_health_notices = [item for item in fresh_health if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+        if len(fresh_health_responses) != 1 or fresh_health_responses[0].get("data", {}).get("disposition") != "handled" or len(fresh_health_notices) != 1:
+            raise AssertionError(f"Fresh Pify health command failed: {fresh_health}")
+        fresh_report = json.loads(fresh_health_notices[0]["message"])
+        if fresh_report["install"]["status"] != "installed" or fresh_report["compatibility"]["status"] != "verified":
+            raise AssertionError(f"Fresh Pify health reported the wrong state: {fresh_report}")
+        if (snapshot(fresh_agent), snapshot(fresh_workspace)) != before_fresh_health:
+            raise AssertionError("Fresh Pify health changed the isolated fixture")
+
+        check_tui(fresh_workspace, fresh_env, expected_theme="pify")
+        fresh_journal = json.loads((fresh_agent / "pify-state" / "theme-selection.json").read_text())
+        transactions = fresh_journal.get("transactions", [])
+        if len(transactions) != 1 or transactions[0]["approvalSource"] != "fresh-default" or transactions[0]["previous"] != {"present": False}:
+            raise AssertionError(f"Fresh theme selection lacked the approved journal: {fresh_journal}")
+        rollback_theme(fresh_workspace, fresh_env)
+        if json.loads(fresh_settings.read_text()).get("theme") != "system":
+            raise AssertionError("Fresh theme rollback did not save the explicit system choice")
+        if json.loads((fresh_agent / "pify-state" / "theme-selection.json").read_text())["transactions"][0]["status"] != "rolled-back":
+            raise AssertionError("Fresh theme rollback left an active journal")
+        check_tui(fresh_workspace, fresh_env)
+        if json.loads(fresh_settings.read_text()).get("theme") != "system":
+            raise AssertionError("A later ordinary Pi session reselected Pify after rollback")
+        run_pi(["remove", str(PACKAGE_ROOT)], fresh_workspace, fresh_env)
+        if str(PACKAGE_ROOT) in run_pi(["list"], fresh_workspace, fresh_env):
+            raise AssertionError("Fresh Pi removal left Pify registered")
+        fresh_removed_settings = json.loads(fresh_settings.read_text())
+        if fresh_removed_settings.get("packages") != [] or fresh_removed_settings.get("theme") != "system":
+            raise AssertionError(f"Fresh Pi removal changed the restored choice: {fresh_removed_settings}")
+        fresh_commands = run_pi(
+            ["--offline", "--no-mcp", "--no-session", "--mode", "rpc"], fresh_workspace, fresh_env,
+            '{"id":"commands","type":"get_commands"}\n',
+        )
+        fresh_responses = [json.loads(line) for line in fresh_commands.splitlines()]
+        fresh_command_responses = [item for item in fresh_responses if item.get("id") == "commands" and item.get("success") is True]
+        if len(fresh_command_responses) != 1:
+            raise AssertionError(f"Pi did not return commands after fresh removal: {fresh_commands}")
+        fresh_command_names = {item["name"] for item in fresh_command_responses[0]["data"]["commands"]}
+        if "pify-health" in fresh_command_names or "skill:pify-test-first" in fresh_command_names:
+            raise AssertionError(f"Fresh Pi removal left Pify commands: {sorted(fresh_command_names)}")
+        if snapshot(fresh_workspace) != fresh_before_preview[1] or fresh_note.read_text() != "Unrelated project note\n":
+            raise AssertionError("Fresh Pi setup changed the unrelated workspace")
 
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
         listing = run_pi(["list"], workspace, env)
@@ -345,13 +420,7 @@ def main() -> None:
 
         check_tui(workspace, env, expected_theme="pify")
         models_before = check_installed_models_and_permissions(workspace, agent, env)
-        rollback_records = run_command_rpc(
-            workspace, env, "/pify-theme rollback", "theme-rollback",
-            ["--pify-scope", "settings.json"], require_response=False,
-        )
-        rollback_notices = [item for item in rollback_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
-        if len(rollback_notices) != 1 or json.loads(rollback_notices[0]["message"]).get("status") != "rolled-back":
-            raise AssertionError(f"Fresh theme could not be rolled back before Pi removal: {rollback_records}")
+        rollback_theme(workspace, env)
         if list(workspace.iterdir()):
             raise AssertionError("Pi created project configuration or another workspace artifact")
 
