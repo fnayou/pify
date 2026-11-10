@@ -21,9 +21,18 @@ def git(args: list[str], cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
+def require_backup(backup: Path, commit: str) -> None:
+    backed_up = git(["--git-dir", str(backup), "rev-parse", "--verify", "refs/heads/pify-backup^{commit}"])
+    if backed_up != commit:
+        raise AssertionError("Backup does not contain the recorded installed commit")
+    git(["--git-dir", str(backup), "fsck", "--strict", "--no-reflogs"])
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="pify-git-version-smoke-") as directory:
         root = Path(directory).resolve()
+        if root.stat().st_mode & 0o077:
+            raise AssertionError("Git backup parent is accessible to other users")
         mirror = root / "source.git"
         working = root / "synthetic-next"
         reviewed_old = root / "reviewed-old"
@@ -135,6 +144,23 @@ def main() -> None:
 
         run_pi(["install", old_source], workspace, env)
         assert_installed(old_source, old, old_version, old_preview["source"]["reviewCode"])
+
+        incomplete_backup = root / "incomplete-backup.git"
+        git(["init", "--bare", str(incomplete_backup)])
+        try:
+            require_backup(incomplete_backup, old)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("An incomplete backup was accepted before update")
+        assert_installed(old_source, old, old_version, old_preview["source"]["reviewCode"])
+
+        backup = root / "private-backup.git"
+        git(["init", "--bare", str(backup)])
+        git(["--git-dir", str(backup), "config", "receive.shallowUpdate", "true"])
+        git(["push", str(backup), f"{old}:refs/heads/pify-backup"], checkout)
+        require_backup(backup, old)
+
         run_pi(["install", new_source], workspace, env)
         assert_installed(new_source, new, next_version, new_preview["source"]["reviewCode"])
         run_pi(["install", old_source], workspace, env)
@@ -158,7 +184,17 @@ def main() -> None:
         if current_user_state() != user_state:
             raise AssertionError("Failed version change modified unrelated user files")
 
-        run_pi(["install", old_source], workspace, env)
+        unavailable_mirror = mirror.with_name("source-unavailable.git")
+        mirror.rename(unavailable_mirror)
+        unavailable_restore = subprocess.run(["pi", "install", old_source], cwd=workspace, env=env,
+                                             text=True, capture_output=True, timeout=30)
+        if unavailable_restore.returncode == 0 or "git fetch" not in unavailable_restore.stdout + unavailable_restore.stderr:
+            raise AssertionError("Rollback unexpectedly succeeded without the offline backup")
+        if health(workspace, env)["install"]["status"] != "unknown" or current_user_state() != user_state:
+            raise AssertionError("Failed remote rollback changed the partial state or unrelated files")
+        require_backup(backup, old)
+        restore_env = {**env, "GIT_CONFIG_KEY_0": f"url.{backup.as_uri()}.insteadOf"}
+        run_pi(["install", old_source], workspace, restore_env)
         assert_installed(old_source, old, old_version, old_preview["source"]["reviewCode"])
         run_pi(["remove", old_source], workspace, env)
         if checkout.exists() or json.loads(settings_file.read_text())["packages"] != original_packages or marker.exists():
@@ -167,7 +203,7 @@ def main() -> None:
             raise AssertionError("Pify command remained after removal")
         if current_user_state() != user_state:
             raise AssertionError("Pi removal modified unrelated user files")
-    print(f"Pify Git version-change recovery smoke passed on {os.uname().sysname}")
+    print(f"Pify Git version-change and offline rollback smoke passed on {os.uname().sysname}")
 
 
 if __name__ == "__main__":
