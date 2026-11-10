@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { link, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, link, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { formatSetupPreview, previewLocalSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
+import { formatSetupPreview, previewGitSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
+
+const GIT_COMMIT = "a".repeat(40);
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "pify-setup-preview-"));
@@ -83,6 +85,70 @@ test("review code binds the local directory and imported runtime code; verificat
 
   await writeFile(path.join(second.agentDir, "settings.json"), JSON.stringify({ packages: [second.packageRoot] }));
   assert.equal((await verifyLocalSetup({ ...second, expectedReviewCode: preview.source.reviewCode })).status, "mismatch");
+});
+
+test("Git review code compares runtime bytes across reviewed and managed paths", async (t) => {
+  const first = await fixture(t);
+  const second = await fixture(t);
+  for (const item of [first, second]) {
+    await mkdir(path.join(item.packageRoot, ".git"));
+    await writeFile(path.join(item.packageRoot, ".git", "HEAD"), `${GIT_COMMIT}\n`);
+  }
+  const settingsFile = path.join(first.agentDir, "settings.json");
+  await writeFile(settingsFile, JSON.stringify({ packages: [], apiKey: "PRIVATE_TEST_VALUE" }));
+  const settingsBefore = await readFile(settingsFile);
+  const preview = await previewGitSetup({ ...first, commit: GIT_COMMIT });
+  const otherPreview = await previewGitSetup({ ...second, commit: GIT_COMMIT });
+  assert.equal(preview.schema, "pify.git-setup-preview/v1");
+  assert.equal(preview.piRegistration.action, "add_pinned_git_declaration");
+  assert.equal(preview.source.origin, "not_verified");
+  assert.equal(preview.source.reviewCode, otherPreview.source.reviewCode);
+  assert.notEqual(preview.source.reviewCode, (await previewLocalSetup(first)).source.reviewCode);
+  assert.equal(JSON.stringify(preview).includes("PRIVATE_TEST_VALUE"), false);
+  assert.deepEqual(await readFile(settingsFile), settingsBefore);
+
+  const managed = path.join(first.agentDir, "git", "github.com", "fnayou", "pify");
+  await mkdir(path.dirname(managed), { recursive: true });
+  await cp(first.packageRoot, managed, { recursive: true });
+  await writeFile(settingsFile, JSON.stringify({ packages: [{ source: `git:github.com/fnayou/pify@${GIT_COMMIT}`, skills: [] }], apiKey: "PRIVATE_TEST_VALUE" }));
+  const installedSettings = await readFile(settingsFile);
+  const verified = await verifyGitSetup({ agentDir: first.agentDir, packageRoot: managed, commit: GIT_COMMIT, expectedReviewCode: preview.source.reviewCode });
+  assert.equal(verified.status, "verified");
+  assert.equal(verified.piRegistration.declaration, "exact");
+  assert.equal(JSON.stringify(verified).includes("PRIVATE_TEST_VALUE"), false);
+  assert.deepEqual(await readFile(settingsFile), installedSettings);
+
+  await writeFile(path.join(managed, "src", "helper.mjs"), "export const ready = false;\n");
+  assert.equal((await verifyGitSetup({ agentDir: first.agentDir, packageRoot: managed, commit: GIT_COMMIT, expectedReviewCode: preview.source.reviewCode })).status, "mismatch");
+  await writeFile(path.join(managed, "src", "helper.mjs"), "export const ready = true;\n");
+  await writeFile(path.join(managed, ".git", "HEAD"), `${"b".repeat(40)}\n`);
+  assert.equal((await verifyGitSetup({ agentDir: first.agentDir, packageRoot: managed, commit: GIT_COMMIT, expectedReviewCode: preview.source.reviewCode })).status, "mismatch");
+  await writeFile(path.join(managed, ".git", "HEAD"), `${GIT_COMMIT}\n`);
+  await writeFile(settingsFile, JSON.stringify({ packages: [`git:github.com/fnayou/pify@${"b".repeat(40)}`] }));
+  assert.equal((await verifyGitSetup({ agentDir: first.agentDir, packageRoot: managed, commit: GIT_COMMIT, expectedReviewCode: preview.source.reviewCode })).status, "mismatch");
+  await writeFile(settingsFile, JSON.stringify({ packages: [] }));
+  assert.equal((await verifyGitSetup({ agentDir: first.agentDir, packageRoot: managed, commit: GIT_COMMIT, expectedReviewCode: preview.source.reviewCode })).status, "not_installed");
+});
+
+test("Git preview requires a detached full commit and reports conflicting declarations", async (t) => {
+  const { root, agentDir, packageRoot } = await fixture(t);
+  await mkdir(path.join(packageRoot, ".git"));
+  const head = path.join(packageRoot, ".git", "HEAD");
+  await writeFile(head, "ref: refs/heads/main\n");
+  await assert.rejects(previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT }), /Expected a detached Git checkout/);
+  await assert.rejects(previewGitSetup({ agentDir, packageRoot, commit: "main" }), /full lowercase Git commit/);
+  await rm(head);
+  await symlink(path.join(root, "outside-head"), head);
+  await writeFile(path.join(root, "outside-head"), `${GIT_COMMIT}\n`);
+  await assert.rejects(previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT }), /Expected a detached Git checkout/);
+  await rm(head);
+  await writeFile(head, `${GIT_COMMIT}\n`);
+  await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: ["git:github.com/fnayou/pify@main"] }));
+  assert.equal((await previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT })).piRegistration.action, "conflict");
+  await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: ["npm:@fnayou/pify@2026.11.4"] }));
+  assert.equal((await previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT })).piRegistration.action, "conflict");
+  await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [packageRoot] }));
+  assert.equal((await previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT })).piRegistration.action, "conflict");
 });
 
 test("runtime source digest refuses linked imported files", async (t) => {

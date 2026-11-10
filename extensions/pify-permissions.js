@@ -11,7 +11,10 @@ import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
-import { formatSetupPreview, formatSetupVerification, previewLocalSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
+import {
+  formatGitSetupPreview, formatGitSetupVerification, formatSetupPreview, formatSetupVerification,
+  previewGitSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup,
+} from "../src/setup-preview.mjs";
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -151,23 +154,28 @@ export default function (pi) {
   });
 
   pi.registerCommand("pify-setup", {
-    description: "Preview or verify the private local Pify package source",
+    description: "Preview or verify the private local or pinned Git Pify package source",
     handler: async (args, ctx) => {
       const command = args.trim();
       const verify = /^verify ([a-f0-9]{64})$/.exec(command);
-      if (command !== "preview" && !verify) {
-        ctx.ui.notify("Usage: /pify-setup preview | verify <review-code>", "warning");
+      const previewGit = /^preview-git ([a-f0-9]{40})$/.exec(command);
+      const verifyGit = /^verify-git ([a-f0-9]{40}) ([a-f0-9]{64})$/.exec(command);
+      if (command !== "preview" && !verify && !previewGit && !verifyGit) {
+        ctx.ui.notify("Usage: /pify-setup preview | verify <review-code> | preview-git <commit> | verify-git <commit> <review-code>", "warning");
         return;
       }
-      if (command === "preview" && pi.getFlag("pify-preflight") !== true) {
+      if ((command === "preview" || previewGit) && pi.getFlag("pify-preflight") !== true) {
         ctx.ui.notify(JSON.stringify({ status: "unavailable", reason: "Start a transient Pi session with --pify-preflight before preview" }), "warning");
         return;
       }
       try {
-        const report = verify
-          ? await verifyLocalSetup({ agentDir: agentDir(), expectedReviewCode: verify[1] })
-          : await previewLocalSetup({ agentDir: agentDir() });
-        const formatted = verify ? formatSetupVerification(report) : formatSetupPreview(report);
+        const report = verify ? await verifyLocalSetup({ agentDir: agentDir(), expectedReviewCode: verify[1] }) :
+          previewGit ? await previewGitSetup({ agentDir: agentDir(), commit: previewGit[1] }) :
+          verifyGit ? await verifyGitSetup({ agentDir: agentDir(), commit: verifyGit[1], expectedReviewCode: verifyGit[2] }) :
+          await previewLocalSetup({ agentDir: agentDir() });
+        const formatted = verify ? formatSetupVerification(report) :
+          previewGit ? formatGitSetupPreview(report) :
+          verifyGit ? formatGitSetupVerification(report) : formatSetupPreview(report);
         ctx.ui.notify(ctx.mode === "tui" ? formatted : JSON.stringify(report), "info");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
