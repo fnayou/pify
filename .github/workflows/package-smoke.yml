@@ -30,6 +30,8 @@ jobs:
           echo "$RUNNER_TEMP/pi-runtime/bin" >> "$GITHUB_PATH"
       - name: Exercise Pify package in isolated agent and workspace
         run: python3 scripts/smoke_pi_package.py
+      - name: Exercise pinned Git package in isolated fresh and existing agents
+        run: python3 scripts/smoke_pi_git_package.py
       - name: Verify local and Anthropic model paths without external services
         run: python3 scripts/smoke_pi_models.py
       - name: Verify per-project workflow opt-in and trust isolation
