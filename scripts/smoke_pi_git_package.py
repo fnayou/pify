@@ -138,8 +138,12 @@ def main() -> None:
         root = Path(directory).resolve()
         mirror = root / "source.git"
         subprocess.run(["git", "init", "--bare", str(mirror)], check=True, capture_output=True)
-        subprocess.run(["git", "push", str(mirror), f"{commit}:refs/heads/pify-smoke"],
-                       cwd=PACKAGE_ROOT, check=True, capture_output=True)
+        subprocess.run(["git", "--git-dir", str(mirror), "config", "receive.shallowUpdate", "true"],
+                       check=True, capture_output=True)
+        pushed = subprocess.run(["git", "push", str(mirror), f"{commit}:refs/heads/pify-smoke"],
+                                cwd=PACKAGE_ROOT, text=True, capture_output=True)
+        if pushed.returncode != 0:
+            raise AssertionError(f"Could not mirror the checked-out commit: {pushed.stderr[-1000:]}")
         subprocess.run(["git", "--git-dir", str(mirror), "symbolic-ref", "HEAD", "refs/heads/pify-smoke"],
                        check=True, capture_output=True)
         for name, existing in (("fresh", False), ("existing", True)):
