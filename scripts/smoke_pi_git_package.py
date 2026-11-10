@@ -6,7 +6,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from smoke_pi_package import run_command_rpc, run_health_rpc, run_pi, snapshot
+from smoke_pi_package import (
+    check_installed_models_and_permissions, check_tui, rollback_theme,
+    run_command_rpc, run_health_rpc, run_pi, snapshot,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +78,7 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
     env.pop("PI_PACKAGE_DIR", None)
     env.pop("PI_OFFLINE", None)
     other_package = root / "other-package"
-    settings_before = None
+    expected_settings_after_remove = None
     other_state = None
     if existing:
         other_package.mkdir()
@@ -93,9 +96,12 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
         settings = json.loads(settings_file.read_text())
         settings["theme"] = "system"
         settings_file.write_text(json.dumps(settings))
-        settings_before = json.loads(settings_file.read_text())
-        other_state = (user_skill.read_bytes(), (agent / "auth.json").read_bytes(),
-                       (agent / "models.json").read_bytes(), (other_package / "package.json").read_bytes())
+        original_settings = json.loads(settings_file.read_text())
+        other_state = {
+            "skill": user_skill.read_bytes(), "auth": (agent / "auth.json").read_bytes(),
+            "models": (agent / "models.json").read_bytes(),
+            "other_package": (other_package / "package.json").read_bytes(),
+        }
 
     reviewed = root / "reviewed"
     subprocess.run(["git", "clone", mirror.as_uri(), str(reviewed)], check=True, capture_output=True)
@@ -159,6 +165,30 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
         raise AssertionError("Missing Git commit was reported as installed")
     head.write_text(commit + "\n")
 
+    if existing:
+        check_tui(workspace, env)
+        if json.loads((agent / "settings.json").read_text()).get("theme") != "system":
+            raise AssertionError("Existing theme changed during ordinary Git session")
+        other_state["models"] = check_installed_models_and_permissions(workspace, agent, env)
+        settings_after_session = json.loads((agent / "settings.json").read_text())
+        expected_settings_after_remove = {**settings_after_session, "packages": original_settings["packages"]}
+    else:
+        if (agent / "models.json").exists() or (agent / "extensions" / "rtk.ts").exists() or (workspace / ".pi").exists():
+            raise AssertionError("Fresh Git fixture unexpectedly has optional integrations")
+        check_tui(workspace, env, expected_theme="pify")
+        journal = agent / "pify-state" / "theme-selection.json"
+        transactions = json.loads(journal.read_text()).get("transactions", [])
+        if len(transactions) != 1 or transactions[0]["approvalSource"] != "fresh-default":
+            raise AssertionError("Fresh Git theme selection lacked its rollback journal")
+        rollback_theme(workspace, env)
+        if json.loads((agent / "settings.json").read_text()).get("theme") != "system":
+            raise AssertionError("Fresh Git theme rollback did not restore system")
+        if json.loads(journal.read_text())["transactions"][0]["status"] != "rolled-back":
+            raise AssertionError("Fresh Git theme rollback left an active journal")
+        check_tui(workspace, env)
+        if json.loads((agent / "settings.json").read_text()).get("theme") != "system":
+            raise AssertionError("Later Git session reselected Pify after rollback")
+
     run_pi(["update", source], workspace, env)
     if head.read_text().strip() != commit or health(workspace, env)["install"]["status"] != "installed":
         raise AssertionError("Same-pin Git update changed the installed package")
@@ -189,14 +219,20 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
     if note.read_text() != "Unrelated project note\n":
         raise AssertionError("Pi changed the unrelated workspace")
     if existing:
-        if json.loads((agent / "settings.json").read_text()) != settings_before:
-            raise AssertionError("Pi removal changed unrelated settings")
-        current_other = (user_skill.read_bytes(), (agent / "auth.json").read_bytes(),
-                         (agent / "models.json").read_bytes(), (other_package / "package.json").read_bytes())
+        removed_settings = json.loads((agent / "settings.json").read_text())
+        if removed_settings != expected_settings_after_remove:
+            raise AssertionError("Pi removal changed unrelated settings after ordinary startup")
+        current_other = {
+            "skill": user_skill.read_bytes(), "auth": (agent / "auth.json").read_bytes(),
+            "models": (agent / "models.json").read_bytes(),
+            "other_package": (other_package / "package.json").read_bytes(),
+        }
         if current_other != other_state:
             raise AssertionError("Pi changed unrelated existing-user files")
         if str(other_package) not in run_pi(["list"], workspace, env):
             raise AssertionError("Pi removal hid the unrelated package")
+    elif json.loads((agent / "settings.json").read_text()).get("theme") != "system":
+        raise AssertionError("Git package removal changed the restored theme")
 
 
 def main() -> None:
