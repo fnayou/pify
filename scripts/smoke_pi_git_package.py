@@ -33,6 +33,15 @@ def health(workspace: Path, env: dict[str, str]) -> dict:
     return json.loads(notices[0]["message"])
 
 
+def state_without_git_metadata(agent: Path, workspace: Path) -> tuple[dict, dict]:
+    installed = snapshot(agent)
+    runtime_and_user_files = {
+        name: contents for name, contents in installed.items()
+        if not name.startswith("git/github.com/fnayou/pify/.git/")
+    }
+    return runtime_and_user_files, snapshot(workspace)
+
+
 def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool) -> None:
     agent = root / "agent"
     workspace = root / "workspace"
@@ -111,6 +120,28 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
     if health(workspace, env)["install"]["status"] != "unknown":
         raise AssertionError("Missing Git commit was reported as installed")
     head.write_text(commit + "\n")
+
+    run_pi(["update", source], workspace, env)
+    if head.read_text().strip() != commit or health(workspace, env)["install"]["status"] != "installed":
+        raise AssertionError("Same-pin Git update changed the installed package")
+    if existing:
+        before_failure = state_without_git_metadata(agent, workspace)
+        unavailable_mirror = mirror.with_name("source-unavailable.git")
+        mirror.rename(unavailable_mirror)
+        try:
+            failed = subprocess.run(["pi", "update", source], cwd=workspace, env=env,
+                                    text=True, capture_output=True, timeout=30)
+            if failed.returncode == 0 or "git fetch" not in failed.stdout + failed.stderr:
+                raise AssertionError("Unavailable Git source did not fail during fetch")
+            if head.read_text().strip() != commit or health(workspace, env)["install"]["status"] != "installed":
+                raise AssertionError("Failed Git update lost the prior installed package")
+            if state_without_git_metadata(agent, workspace) != before_failure:
+                raise AssertionError("Failed Git update changed installed runtime or user files")
+        finally:
+            unavailable_mirror.rename(mirror)
+        run_pi(["update", source], workspace, env)
+        if head.read_text().strip() != commit or health(workspace, env)["install"]["status"] != "installed":
+            raise AssertionError("Git update did not recover after the source returned")
 
     run_pi(["remove", source], workspace, env)
     if source in run_pi(["list"], workspace, env) or checkout.exists():
