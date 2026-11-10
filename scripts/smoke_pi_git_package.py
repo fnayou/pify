@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from smoke_pi_package import run_health_rpc, run_pi, snapshot
+from smoke_pi_package import run_command_rpc, run_health_rpc, run_pi, snapshot
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +30,14 @@ def health(workspace: Path, env: dict[str, str]) -> dict:
     notices = [item for item in records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
     if len(notices) != 1:
         raise AssertionError(f"Pify health did not respond: {records}")
+    return json.loads(notices[0]["message"])
+
+
+def setup_report(workspace: Path, env: dict[str, str], command: str, extra_args: list[str] | None = None) -> dict:
+    records = run_command_rpc(workspace, env, f"/pify-setup {command}", "git-setup", extra_args, require_response=False)
+    notices = [item for item in records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+    if len(notices) != 1:
+        raise AssertionError(f"Pify Git setup did not respond: {records}")
     return json.loads(notices[0]["message"])
 
 
@@ -89,6 +97,20 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
         other_state = (user_skill.read_bytes(), (agent / "auth.json").read_bytes(),
                        (agent / "models.json").read_bytes(), (other_package / "package.json").read_bytes())
 
+    reviewed = root / "reviewed"
+    subprocess.run(["git", "clone", mirror.as_uri(), str(reviewed)], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(reviewed), "checkout", commit], check=True, capture_output=True)
+    run_pi(["--offline", "--no-mcp", "--no-session", "--mode", "rpc"], workspace, env,
+           '{"id":"warm","type":"get_state"}\n')
+    before_preview = (snapshot(agent), snapshot(workspace))
+    preview = setup_report(workspace, env, f"preview-git {commit}", ["-e", str(reviewed), "--pify-preflight"])
+    if preview.get("schema") != "pify.git-setup-preview/v1" or preview.get("status") != "preview" or \
+       preview["source"]["commit"] != commit or preview["source"]["origin"] != "not_verified" or \
+       preview["piRegistration"]["action"] != "add_pinned_git_declaration":
+        raise AssertionError(f"Unexpected pinned Git preview: {preview}")
+    if (snapshot(agent), snapshot(workspace)) != before_preview:
+        raise AssertionError("Pinned Git preview changed the isolated fixture")
+
     run_pi(["install", source], workspace, env)
     listing = run_pi(["list"], workspace, env)
     if source not in listing:
@@ -107,6 +129,20 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
         raise AssertionError("Pify skill did not load from the Git package")
     if existing and Path(loaded["skill:pify-debug"]["sourceInfo"]["path"]) != user_skill:
         raise AssertionError("Git install replaced an existing user skill")
+    review_code = preview["source"]["reviewCode"]
+    verified = setup_report(workspace, env, f"verify-git {commit} {review_code}")
+    if verified.get("schema") != "pify.git-setup-verification/v1" or verified.get("status") != "verified" or \
+       verified["source"]["path"] != str(checkout) or verified["source"]["runtimeDigest"] != preview["source"]["runtimeDigest"]:
+        raise AssertionError(f"Installed Git source differs from reviewed bytes: {verified}")
+    if existing:
+        runtime_file = checkout / "src" / "setup-preview.mjs"
+        original_runtime = runtime_file.read_bytes()
+        runtime_file.write_bytes(original_runtime + b"\n// fixture-only change\n")
+        try:
+            if setup_report(workspace, env, f"verify-git {commit} {review_code}")["status"] != "mismatch":
+                raise AssertionError("Changed Git runtime verified against the prior review")
+        finally:
+            runtime_file.write_bytes(original_runtime)
     before_health = (snapshot(agent), snapshot(workspace))
     report = health(workspace, env)
     if report["compatibility"]["status"] != "verified" or report["install"]["status"] != "installed" or report["install"]["sourceKind"] != "git":
@@ -116,6 +152,8 @@ def exercise(root: Path, source: str, commit: str, mirror: Path, existing: bool)
     head.write_text("0" * 40 + "\n")
     if health(workspace, env)["install"]["status"] != "unknown":
         raise AssertionError("Mismatched Git commit was reported as installed")
+    if setup_report(workspace, env, f"verify-git {commit} {review_code}")["status"] != "mismatch":
+        raise AssertionError("Mismatched Git checkout verified against the prior review")
     head.unlink()
     if health(workspace, env)["install"]["status"] != "unknown":
         raise AssertionError("Missing Git commit was reported as installed")

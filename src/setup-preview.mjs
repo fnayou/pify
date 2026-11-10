@@ -3,7 +3,10 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { buildHealthReport } from "./health.mjs";
+
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const GIT_SOURCE = "git:github.com/fnayou/pify";
 const KINDS = ["extensions", "skills", "prompts", "themes"];
 const MAX_RESOURCE_FILES = 100;
 const MAX_RESOURCE_BYTES = 2 * 1024 * 1024;
@@ -193,6 +196,84 @@ export async function verifyLocalSetup({ agentDir, expectedReviewCode, packageRo
   };
 }
 
+function gitDeclarations(settings) {
+  return (settings.packages ?? [])
+    .map((entry) => typeof entry === "string" ? entry : object(entry) ? entry.source : null)
+    .filter((source) => typeof source === "string" && (source === GIT_SOURCE || source.startsWith(`${GIT_SOURCE}@`)));
+}
+
+function gitReviewCode(commit, runtimeDigest) {
+  return createHash("sha256").update(`pify.git-source-review/v1\0${GIT_SOURCE}\0${commit}\0${runtimeDigest}`).digest("hex");
+}
+
+function requireFullCommit(commit) {
+  if (typeof commit !== "string" || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("Expected a full lowercase Git commit");
+}
+
+async function requireDetachedCommit(root, commit) {
+  try {
+    const gitDir = await fs.lstat(path.join(root, ".git"));
+    const head = await fs.lstat(path.join(root, ".git", "HEAD"));
+    if (gitDir.isDirectory() && !gitDir.isSymbolicLink() && head.isFile() && !head.isSymbolicLink() && head.size <= 41 &&
+        (await fs.readFile(path.join(root, ".git", "HEAD"), "utf8")).trimEnd() === commit) return;
+  } catch {
+    // Missing or unsafe Git metadata cannot establish the requested checkout.
+  }
+  throw new Error("Expected a detached Git checkout at the requested commit");
+}
+
+/** Preview a reviewed clone without binding its review code to the clone path. */
+export async function previewGitSetup({ agentDir, commit, packageRoot = PACKAGE_ROOT }) {
+  requireFullCommit(commit);
+  const local = await previewLocalSetup({ agentDir, packageRoot });
+  await requireDetachedCommit(local.source.path, commit);
+  const settings = await readAgentSettings(agentDir);
+  const sources = gitDeclarations(settings);
+  const npmDeclaration = (settings.packages ?? []).some((entry) => {
+    const source = typeof entry === "string" ? entry : object(entry) ? entry.source : null;
+    return typeof source === "string" && (source === "npm:@fnayou/pify" || source.startsWith("npm:@fnayou/pify@"));
+  });
+  const exactSource = `${GIT_SOURCE}@${commit}`;
+  const action = npmDeclaration || local.piRegistration.action === "already_declared" ? "conflict" :
+    sources.length === 0 ? "add_pinned_git_declaration" :
+    sources.length === 1 && sources[0] === exactSource ? "already_declared" : "conflict";
+  return {
+    schema: "pify.git-setup-preview/v1",
+    status: "preview",
+    source: {
+      kind: "reviewed_git_checkout", path: local.source.path, commit,
+      declaredResourceDigest: local.source.declaredResourceDigest,
+      runtimeDigest: local.source.runtimeDigest,
+      reviewCode: gitReviewCode(commit, local.source.runtimeDigest), origin: "not_verified",
+    },
+    package: local.package,
+    piRegistration: { scope: "agent", action, owner: "pi" },
+    firstInteractiveTheme: local.firstInteractiveTheme,
+    projectResources: "not_checked",
+  };
+}
+
+/** Compare reviewed Git runtime bytes with Pi's declared managed checkout. */
+export async function verifyGitSetup({ agentDir, commit, expectedReviewCode, packageRoot = PACKAGE_ROOT }) {
+  requireFullCommit(commit);
+  if (typeof expectedReviewCode !== "string" || !/^[a-f0-9]{64}$/.test(expectedReviewCode)) {
+    throw new Error("Expected a 64-character setup review code");
+  }
+  const local = await previewLocalSetup({ agentDir, packageRoot });
+  const sources = gitDeclarations(await readAgentSettings(agentDir));
+  const declaration = sources.length === 0 ? "missing" :
+    sources.length === 1 && sources[0] === `${GIT_SOURCE}@${commit}` ? "exact" : "conflicting";
+  const health = await buildHealthReport({ agentDir, packageRoot });
+  const verified = declaration === "exact" && health.install.status === "installed" && health.install.sourceKind === "git" &&
+    gitReviewCode(commit, local.source.runtimeDigest) === expectedReviewCode;
+  return {
+    schema: "pify.git-setup-verification/v1",
+    status: verified ? "verified" : declaration === "missing" ? "not_installed" : "mismatch",
+    source: { kind: "managed_git_checkout", commit, path: local.source.path, runtimeDigest: local.source.runtimeDigest },
+    piRegistration: { scope: "agent", declaration },
+  };
+}
+
 export function formatSetupPreview(report) {
   const lines = [
     `Pify setup preview: ${report.package.name} ${report.package.version} (private local package)`,
@@ -212,4 +293,26 @@ export function formatSetupPreview(report) {
 
 export function formatSetupVerification(report) {
   return `Pify local source: ${report.status}; loaded directory: ${report.source.path}; runtime digest: ${report.source.runtimeDigest}; Pi registration: ${report.piRegistration.action}`;
+}
+
+export function formatGitSetupPreview(report) {
+  const lines = [
+    `Pify Git setup preview: ${report.package.name} ${report.package.version} (private package)`,
+    `Reviewed directory: ${report.source.path}`,
+    `Commit: ${report.source.commit}; origin: ${report.source.origin}`,
+    `Declared resource digest: ${report.source.declaredResourceDigest}`,
+    `Runtime source digest: ${report.source.runtimeDigest}`,
+    `Review code: ${report.source.reviewCode}`,
+    `Pi registration: ${report.piRegistration.action}`,
+    `First interactive theme: ${report.firstInteractiveTheme.action}`,
+  ];
+  for (const resource of report.package.resources) {
+    lines.push(`${resource.kind}: ${resource.relativePath}; agent collision: ${resource.collision.status}; precedence: ${resource.precedence}`);
+  }
+  lines.push("Project resources and GitHub origin: not checked. No installation performed.");
+  return lines.join("\n");
+}
+
+export function formatGitSetupVerification(report) {
+  return `Pify Git source: ${report.status}; commit: ${report.source.commit}; runtime digest: ${report.source.runtimeDigest}; Pi declaration: ${report.piRegistration.declaration}`;
 }
