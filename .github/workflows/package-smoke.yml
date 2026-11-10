@@ -32,6 +32,8 @@ jobs:
         run: python3 scripts/smoke_pi_package.py
       - name: Exercise pinned Git package in isolated fresh and existing agents
         run: python3 scripts/smoke_pi_git_package.py
+      - name: Exercise synthetic Git version change and partial-failure recovery
+        run: python3 scripts/smoke_pi_git_version_change.py
       - name: Verify local and Anthropic model paths without external services
         run: python3 scripts/smoke_pi_models.py
       - name: Verify per-project workflow opt-in and trust isolation
