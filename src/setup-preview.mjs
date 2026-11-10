@@ -304,10 +304,10 @@ export function formatGitSetupPreview(report) {
     `Runtime source digest: ${report.source.runtimeDigest}`,
     `Review code: ${report.source.reviewCode}`,
     `Pi registration: ${report.piRegistration.action}`,
-    `First interactive theme: ${report.firstInteractiveTheme.action}`,
+    `First interactive theme: ${report.firstInteractiveTheme.action}${report.firstInteractiveTheme.savedTheme ? ` (${report.firstInteractiveTheme.savedTheme})` : ""}`,
   ];
   for (const resource of report.package.resources) {
-    lines.push(`${resource.kind}: ${resource.relativePath}; agent collision: ${resource.collision.status}; precedence: ${resource.precedence}`);
+    lines.push(`${resource.kind}: ${resource.relativePath}; agent collision: ${resource.collision.status}${resource.collision.type ? ` (${resource.collision.type})` : ""}; precedence: ${resource.precedence}`);
   }
   lines.push("Project resources and GitHub origin: not checked. No installation performed.");
   return lines.join("\n");
