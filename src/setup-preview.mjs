@@ -253,6 +253,27 @@ export async function previewGitSetup({ agentDir, commit, packageRoot = PACKAGE_
   };
 }
 
+/** Preview a distinct Git pin only when the installed pin still matches its prior review. */
+export async function previewGitUpdateSetup({ agentDir, fromCommit, fromReviewCode, toCommit, packageRoot = PACKAGE_ROOT }) {
+  requireFullCommit(fromCommit);
+  requireFullCommit(toCommit);
+  if (fromCommit === toCommit) throw new Error("Git update requires a different commit");
+  const installedRoot = path.join(agentDir, "git", "github.com", "fnayou", "pify");
+  const prior = await verifyGitSetup({ agentDir, commit: fromCommit, expectedReviewCode: fromReviewCode, packageRoot: installedRoot });
+  if (prior.status !== "verified") throw new Error("Installed Git pin no longer matches the reviewed from-commit");
+  const next = await previewGitSetup({ agentDir, commit: toCommit, packageRoot });
+  if (next.piRegistration.action !== "conflict") throw new Error("Expected one installed Git pin to replace");
+  return {
+    ...next,
+    schema: "pify.git-update-preview/v1",
+    piRegistration: {
+      scope: "agent", action: "replace_pinned_git_declaration", owner: "pi",
+      fromSource: `${GIT_SOURCE}@${fromCommit}`, toSource: `${GIT_SOURCE}@${toCommit}`,
+    },
+    transition: { fromCommit, toCommit, backupRequired: true },
+  };
+}
+
 /** Compare reviewed Git runtime bytes with Pi's declared managed checkout. */
 export async function verifyGitSetup({ agentDir, commit, expectedReviewCode, packageRoot = PACKAGE_ROOT }) {
   requireFullCommit(commit);
@@ -297,7 +318,7 @@ export function formatSetupVerification(report) {
 
 export function formatGitSetupPreview(report) {
   const lines = [
-    `Pify Git setup preview: ${report.package.name} ${report.package.version} (private package)`,
+    `Pify Git ${report.transition ? "update" : "setup"} preview: ${report.package.name} ${report.package.version} (private package)`,
     `Reviewed directory: ${report.source.path}`,
     `Commit: ${report.source.commit}; origin: ${report.source.origin}`,
     `Declared resource digest: ${report.source.declaredResourceDigest}`,
@@ -306,6 +327,7 @@ export function formatGitSetupPreview(report) {
     `Pi registration: ${report.piRegistration.action}`,
     `First interactive theme: ${report.firstInteractiveTheme.action}${report.firstInteractiveTheme.savedTheme ? ` (${report.firstInteractiveTheme.savedTheme})` : ""}`,
   ];
+  if (report.transition) lines.push(`From commit: ${report.transition.fromCommit}; to commit: ${report.transition.toCommit}; backup required before Pi install: yes`);
   for (const resource of report.package.resources) {
     lines.push(`${resource.kind}: ${resource.relativePath}; agent collision: ${resource.collision.status}${resource.collision.type ? ` (${resource.collision.type})` : ""}; precedence: ${resource.precedence}`);
   }
