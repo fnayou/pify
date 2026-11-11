@@ -47,7 +47,7 @@ pi remove "git:github.com/fnayou/pify@$PIFY_COMMIT"
 pi list
 ```
 
-Check that unrelated packages, user skills, settings, credentials, sessions, and project files remain. Pi owns package registration and removal; Pify owns only its extension changes and journal. Native removal does not erase retained Pify recovery records. For a version change, use the separately tested [scoped Git backup sequence](setup-lifecycle.md#candidate-offline-rollback-sequence-disposable-fixture) before attempting a new pin. That sequence is not yet an approved user update procedure.
+Check that unrelated packages, user skills, settings, credentials, sessions, and project files remain. Pi owns package registration and removal; Pify owns only its extension changes and journal. Native removal does not erase retained Pify recovery records. A version change needs a separate [read-only update preview and scoped Git backup](native-git-update-candidate.md) before asking Pi to replace the pin. That sequence is not yet an approved user update procedure.
 
 ## Evidence and remaining gate
 
