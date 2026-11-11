@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from smoke_pi_git_package import commands, health, setup_report
-from smoke_pi_package import check_tui, run_pi, snapshot
+from smoke_pi_package import check_tui, rollback_theme, run_pi, snapshot
 
 
 GITHUB_URL = "https://github.com/fnayou/pify.git"
@@ -139,7 +139,53 @@ def main() -> None:
             (agent / "models.json").read_bytes(), note.read_bytes(),
             (other_package / "package.json").read_bytes()) != user_state:
             raise AssertionError("GitHub package lifecycle changed unrelated user files")
-    print(f"Pify live GitHub pin smoke passed: {args.commit} Pi 1.4.0 {os.uname().sysname}")
+
+        fresh_agent = root / "fresh-agent"
+        fresh_workspace = root / "fresh-workspace"
+        fresh_agent.mkdir()
+        fresh_workspace.mkdir()
+        fresh_note = fresh_workspace / "user-note.md"
+        fresh_note.write_text("Fresh project note\n")
+        fresh_env = {**env, "PI_CODING_AGENT_DIR": str(fresh_agent),
+                     "PI_CODING_AGENT_SESSION_DIR": str(root / "fresh-sessions")}
+        run_pi(["--offline", "--no-mcp", "--no-session", "--mode", "rpc"], fresh_workspace, fresh_env,
+               '{"id":"warm","type":"get_state"}\n')
+        before_fresh_preview = (snapshot(fresh_agent), snapshot(fresh_workspace))
+        fresh_preview = setup_report(fresh_workspace, fresh_env, f"preview-git {args.commit}",
+                                     ["-e", str(reviewed), "--pify-preflight"])
+        if fresh_preview.get("status") != "preview" or \
+           fresh_preview["piRegistration"]["action"] != "add_pinned_git_declaration" or \
+           fresh_preview["firstInteractiveTheme"]["action"] != "select_pify" or \
+           fresh_preview["source"]["reviewCode"] != review_code:
+            raise AssertionError("Fresh GitHub preflight did not show the reviewed source and theme plan")
+        if (snapshot(fresh_agent), snapshot(fresh_workspace)) != before_fresh_preview:
+            raise AssertionError("Fresh GitHub source preview changed the fixture")
+        if (fresh_agent / "models.json").exists() or (fresh_agent / "extensions" / "rtk.ts").exists() or \
+           (fresh_workspace / ".pi").exists():
+            raise AssertionError("Fresh fixture unexpectedly has optional integrations")
+
+        run_pi(["install", source], fresh_workspace, fresh_env)
+        fresh_checkout = fresh_agent / "git" / "github.com" / "fnayou" / "pify"
+        fresh_settings_file = fresh_agent / "settings.json"
+        if json.loads(fresh_settings_file.read_text())["packages"] != [source] or \
+           (fresh_checkout / ".git" / "HEAD").read_text().strip() != args.commit or \
+           commands(fresh_workspace, fresh_env).get("skill:pify-debug", {}).get("sourceInfo", {}).get("origin") != "package":
+            raise AssertionError("Fresh native Pi install did not load the reviewed GitHub pin")
+        if setup_report(fresh_workspace, fresh_env, f"verify-git {args.commit} {review_code}")["status"] != "verified" or \
+           health(fresh_workspace, fresh_env)["install"]["status"] != "installed":
+            raise AssertionError("Fresh GitHub pin failed ordinary-session verification or health")
+        check_tui(fresh_workspace, fresh_env, expected_theme="pify")
+        rollback_theme(fresh_workspace, fresh_env)
+        if json.loads(fresh_settings_file.read_text()).get("theme") != "system":
+            raise AssertionError("Fresh theme rollback did not restore system")
+        check_tui(fresh_workspace, fresh_env)
+        if json.loads(fresh_settings_file.read_text()).get("theme") != "system":
+            raise AssertionError("Later fresh session reselected Pify after rollback")
+        run_pi(["remove", source], fresh_workspace, fresh_env)
+        if fresh_checkout.exists() or json.loads(fresh_settings_file.read_text())["packages"] != [] or \
+           "pify-health" in commands(fresh_workspace, fresh_env) or fresh_note.read_text() != "Fresh project note\n":
+            raise AssertionError("Fresh GitHub removal left Pify installed or changed the project note")
+    print(f"Pify fresh and existing GitHub pin smoke passed: {args.commit} Pi 1.4.0 {os.uname().sysname}")
 
 
 if __name__ == "__main__":
