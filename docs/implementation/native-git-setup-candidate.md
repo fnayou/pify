@@ -4,10 +4,10 @@
 
 ## Source review and preflight
 
-Choose a full commit from the public `fnayou/pify` repository and review its source before loading it. The current recorded candidate is `e4501b7b4cd20448d969861d05244f591b1b6773`; it was tested with official Pi 1.4.0 on macOS. A later commit needs a new preview and acceptance run. In a disposable workspace, use the exact source:
+Choose a full commit from the public `fnayou/pify` repository and review its source before loading it. The current recorded candidate is `77c744e307a838b0a6cbfb75e8956c33bf24c035`; it was tested with official Pi 1.4.0 on macOS and Linux. A later commit needs a new preview and acceptance run. In a disposable workspace, use the exact source:
 
 ```sh
-PIFY_COMMIT=e4501b7b4cd20448d969861d05244f591b1b6773
+PIFY_COMMIT=77c744e307a838b0a6cbfb75e8956c33bf24c035
 git clone --no-checkout https://github.com/fnayou/pify.git pify-reviewed
 git -C pify-reviewed checkout --detach "$PIFY_COMMIT"
 git -C pify-reviewed rev-parse HEAD
@@ -51,4 +51,4 @@ Check that unrelated packages, user skills, settings, credentials, sessions, and
 
 ## Evidence and remaining gate
 
-The optional [`smoke_pi_live_github.py`](../../scripts/smoke_pi_live_github.py) passed fresh and existing disposable agents on macOS with Pi 1.4.0 and commit `e4501b7b4cd20448d969861d05244f591b1b6773`. It checked transient preview, exact native install, ordinary verification and health, skills and collision precedence, TUI startup, fresh theme rollback and a later session, native removal, and unrelated-state preservation. An optional [private hosted-model check](models.md#hosted-model-inside-the-reviewed-git-setup-candidate) passed in this Git journey with a loopback fixture; a real hosted route remains untested in this combined path. The existing mirror-backed package smoke covers the joined path on macOS and Linux. This candidate still needs a supported distribution decision, an approved backed-up user update procedure, full integrated live-provider evidence, and the final cross-platform gate run before it can be called supported.
+The [`smoke_pi_live_github.py`](../../scripts/smoke_pi_live_github.py) [passed](https://github.com/fnayou/pify/actions/runs/43013184734) fresh and existing disposable agents on macOS and Linux with Pi 1.4.0 and commit `77c744e307a838b0a6cbfb75e8956c33bf24c035`. It checked transient preview, exact native install, ordinary verification and health, skills and collision precedence, TUI startup, fresh theme rollback and a later session, native removal, and unrelated-state preservation. An optional [private hosted-model check](models.md#hosted-model-inside-the-reviewed-git-setup-candidate) passed in this Git journey with a loopback fixture; a real hosted route remains untested in this combined path. The existing mirror-backed package smoke covers the joined path on macOS and Linux. This candidate still needs an approved backed-up user update procedure, full integrated live-provider evidence, and the final gate review before it can be called supported.

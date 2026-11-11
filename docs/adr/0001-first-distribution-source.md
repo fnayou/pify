@@ -10,7 +10,7 @@ When the Waves 1–2 MVP gate passes, Pify's first supported source will be `git
 
 | Source | Current evidence | First-release consequence |
 | --- | --- | --- |
-| Full GitHub commit pin | Native Pi 1.4.0 install and removal passed in isolated macOS/Linux mirror fixtures. A real GitHub fetch, preview, ordinary verification, and removal passed on macOS. A synthetic A→B change has read-only preview, backup, failure detection, and offline A recovery. | Use one immutable source string in the release record and setup guide. Require source review before Pi loads code, exact post-install verification, and a private backup before an explicit update. |
+| Full GitHub commit pin | Native Pi 1.4.0 install and removal passed in isolated macOS/Linux mirror fixtures. A [real GitHub fetch, preview, ordinary verification, and removal](https://github.com/fnayou/pify/actions/runs/43013184734) passed on both platforms. A synthetic A→B change has read-only preview, backup, failure detection, and offline A recovery. | Use one immutable source string in the release record and setup guide. Require source review before Pi loads code, exact post-install verification, and a private backup before an explicit update. |
 | `npm:@fnayou/pify@<version>` | The repository manifest is private. Health has synthetic npm declaration tests; no reviewed registry artifact or native registry install has been validated. | Publishing would need a separate artifact review, registry ownership and version-history checks, package access decision, and explicit authorization. |
 | Local directory | Private development setup is tested on macOS and Linux, with path-bound review. | A local path does not provide one portable public source identity and can change in place. |
 
