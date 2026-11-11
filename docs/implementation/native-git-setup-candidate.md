@@ -1,13 +1,13 @@
 # Candidate native Pi setup from a pinned Git commit
 
-**Status, 2026-11-11:** [ADR-0001](../adr/0001-first-distribution-source.md) selects a full Git commit as the first supported source only after [MVP gate #81](https://github.com/fnayou/pify/issues/81) passes. This remains a development candidate, not a supported installation guide or release. Pify remains a bootstrap project. No package has been published. The steps below describe the native Pi entrypoint tested in disposable agent directories; they are not approval to change an active Pi installation.
+**Status, 2026-11-12:** [ADR-0001](../adr/0001-first-distribution-source.md) selects a full Git commit as the first supported source only after [MVP gate #81](https://github.com/fnayou/pify/issues/81) passes. This remains a development candidate, not a supported installation guide or release. Pify remains a bootstrap project. No package has been published. The steps below describe the native Pi entrypoint tested in disposable agent directories; they are not approval to change an active Pi installation.
 
 ## Source review and preflight
 
-Choose a full commit from the public `fnayou/pify` repository and review its source before loading it. The current recorded candidate is `77c744e307a838b0a6cbfb75e8956c33bf24c035`; it was tested with official Pi 1.4.0 on macOS and Linux. A later commit needs a new preview and acceptance run. In a disposable workspace, use the exact source:
+Choose a full commit from the public `fnayou/pify` repository and review its source before loading it. The current recorded candidate is `9faefeb17b55d6ec15d078eaa1325ee36bb8bab2`; it was tested with official Pi 1.5.2 on macOS and Linux. A later commit needs a new preview and acceptance run. In a disposable workspace, use the exact source:
 
 ```sh
-PIFY_COMMIT=77c744e307a838b0a6cbfb75e8956c33bf24c035
+PIFY_COMMIT=9faefeb17b55d6ec15d078eaa1325ee36bb8bab2
 git clone --no-checkout https://github.com/fnayou/pify.git pify-reviewed
 git -C pify-reviewed checkout --detach "$PIFY_COMMIT"
 git -C pify-reviewed rev-parse HEAD
@@ -51,4 +51,4 @@ Check that unrelated packages, user skills, settings, credentials, sessions, and
 
 ## Evidence and remaining gate
 
-The [`smoke_pi_live_github.py`](../../scripts/smoke_pi_live_github.py) [passed](https://github.com/fnayou/pify/actions/runs/43013184734) fresh and existing disposable agents on macOS and Linux with Pi 1.4.0 and commit `77c744e307a838b0a6cbfb75e8956c33bf24c035`. It checked transient preview, exact native install, ordinary verification and health, skills and collision precedence, TUI startup, fresh theme rollback and a later session, native removal, and unrelated-state preservation. An optional [private hosted-model check](models.md#hosted-model-inside-the-reviewed-git-setup-candidate) passed in this Git journey with a loopback fixture; a real hosted route remains untested in this combined path. The existing mirror-backed package smoke covers the joined path on macOS and Linux. This candidate still needs an approved backed-up user update procedure, full integrated live-provider evidence, and the final gate review before it can be called supported.
+The [`smoke_pi_live_github.py`](../../scripts/smoke_pi_live_github.py) [passed](https://github.com/fnayou/pify/actions/runs/43119841151) fresh and existing disposable agents on macOS and Linux with Pi 1.5.2 and commit `9faefeb17b55d6ec15d078eaa1325ee36bb8bab2`. It checked transient preview, exact native install, ordinary verification and health, skills and collision precedence, TUI startup, fresh theme rollback and a later session, native removal, and unrelated-state preservation. The earlier [Pi 1.4.0 run](https://github.com/fnayou/pify/actions/runs/43013184734) remains historical evidence for its own commit. An optional [private hosted-model check](models.md#hosted-model-inside-the-reviewed-git-setup-candidate) passed in this Git journey with a loopback fixture; a real hosted route remains untested in this combined path. The mirror-backed package smoke covers the joined path on macOS and Linux. This candidate still needs an approved backed-up user update procedure, full integrated live-provider evidence, and the final gate review before it can be called supported.
