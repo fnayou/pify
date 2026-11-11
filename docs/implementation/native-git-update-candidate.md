@@ -1,6 +1,6 @@
 # Candidate backed-up pinned Git update
 
-**Status, 2026-11-11:** This is a disposable-fixture procedure for [MVP gate #81](https://github.com/fnayou/pify/issues/81), not an approved user update or release instruction. Pify remains a bootstrap project. It uses native Pi package operations and a private Git backup; it must not be applied to an active Pi installation until the release and backup policy is approved.
+**Status, 2026-11-11:** This is a disposable-fixture procedure for the conditional [Git distribution choice](../adr/0001-first-distribution-source.md) and [MVP gate #81](https://github.com/fnayou/pify/issues/81), not an approved user update or release instruction. Pify remains a bootstrap project. It uses native Pi package operations and a private Git backup; it must not be applied to an active Pi installation until the release and backup policy is approved.
 
 ## Preconditions and review
 
