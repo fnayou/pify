@@ -2,7 +2,7 @@
 
 **Status, 2026-11-11:** The end-to-end MVP gate in [product spec #2](https://github.com/fnayou/pify/issues/2) remains open. Pify is a bootstrap project with a private development package, no supported release, and no public install command. Closed implementation issues, green CI checks, and one owner-run hosted-model check prove the slices below, not a complete new-user or existing-user journey.
 
-The automated evidence uses official Pi 1.4.0 with isolated agent directories and workspaces on macOS and Linux. Tests do not touch an active Pi installation. “Fixture” means a local simulated service or temporary Pi setup; it does not prove a hosted provider account works.
+The current automated target is official Pi 1.5.2 with isolated agent directories and workspaces on macOS and Linux. Earlier Pi 1.4.0 runs remain historical evidence for their exact commits. Tests do not touch an active Pi installation. “Fixture” means a local simulated service or temporary Pi setup; it does not prove a hosted provider account works.
 
 [ADR-0001](../adr/0001-first-distribution-source.md) selects a reviewed, full Git commit pin as the first supported source only after this gate passes. The private `@fnayou/pify` manifest identity remains for a separate npm publication decision. No development commit is a released pin, and the public install guidance remains blocked.
 
@@ -30,6 +30,10 @@ The [synthetic Git version smoke](../../scripts/smoke_pi_git_version_change.py) 
 The [backed-up update candidate](native-git-update-candidate.md) adds a read-only `/pify-setup preview-update-git` step before that backup and native pin change. It requires the exact installed A declaration, healthy Pi-managed checkout, and the prior A runtime review code, then reports B's source and review code with `backupRequired: true`. The fixture checks that this preview leaves A unchanged and refuses a later partial-failure state. Pi 1.4.0 needs `--no-extensions` when explicitly loading reviewed B while A is installed; otherwise duplicate extension tools and flags block startup. The procedure remains a fixture-tested candidate. It does not approve a real-user update, verify remote provenance, or close #55 or #81.
 
 ## Gate closure
+
+### Pi runtime qualification
+
+Pin one exact official Pi version in CI and the integration scripts. When Pi publishes a newer version, open an issue, review the upstream changes, install it in an isolated prefix, and run the full package and Git smoke on macOS and Linux before changing the tested-version claim. After merge, record a live public-GitHub pin run before naming a distribution candidate. Keep older run links with their actual Pi versions. A newer Pi version is `unverified` until its smoke passes; `unverified` does not mean incompatible. Do not float CI to `latest` or update an active Pi installation as part of qualification. Reverting the version-target commit restores the prior target if the new run fails.
 
 Close [MVP gate #81](https://github.com/fnayou/pify/issues/81) only when one recorded acceptance run covers fresh and existing isolated Pi setups through a supported user entrypoint: preview and approval, install/adopt, read-only health, local and hosted-cloud model selection, headless refusal, failed-change recovery, rollback, uninstall, and preservation of unrelated state. Run the applicable automated path on macOS and Linux; record any platform-specific live-provider evidence separately. Keep the release blocked until every MVP row has evidence.
 

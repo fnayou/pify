@@ -72,6 +72,17 @@ test("fresh check is read-only and useful without settings or optional services"
   assert.deepEqual(await snapshot(agentDir), before);
 });
 
+test("only the qualified Pi version is verified", async (t) => {
+  const agentDir = await fixture(t);
+  for (const [piVersion, status] of [
+    ["1.4.0", "unverified"],
+    ["1.5.2", "verified"],
+    ["1.5.3", "unverified"],
+  ]) {
+    assert.equal((await buildHealthReport({ agentDir, piVersion })).compatibility.status, status);
+  }
+});
+
 test("health reports theme rollback availability without changing its journal", async (t) => {
   const agentDir = await fixture(t);
   await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [PACKAGE_ROOT], theme: "system" }));

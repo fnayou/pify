@@ -27,7 +27,7 @@ Start a transient Pi session from the reviewed B checkout:
 pi --no-extensions -e "$PWD/pify-next-reviewed" --pify-preflight
 ```
 
-`--no-extensions` suppresses discovery of installed A while explicit `-e` still loads reviewed B; otherwise duplicate Pify tools and flags prevent Pi 1.4.0 from starting. Run `/pify-setup preview-update-git <A> <A-review-code> <B>` inside it. Require `replace_pinned_git_declaration`, exact A and B sources, `backupRequired: true`, the expected B runtime digest and review code, and no unresolved resource collision. The command checks that the installed A pin still matches its prior review. It does not inspect or create the backup, install B, approve a conflict, or write Pify state. Pi may initialize its own files while starting the transient session. Exit Pi before creating the backup.
+`--no-extensions` suppresses discovery of installed A while explicit `-e` still loads reviewed B; otherwise duplicate Pify tools and flags prevent Pi 1.5.2 from starting. Run `/pify-setup preview-update-git <A> <A-review-code> <B>` inside it. Require `replace_pinned_git_declaration`, exact A and B sources, `backupRequired: true`, the expected B runtime digest and review code, and no unresolved resource collision. The command checks that the installed A pin still matches its prior review. It does not inspect or create the backup, install B, approve a conflict, or write Pify state. Pi may initialize its own files while starting the transient session. Exit Pi before creating the backup.
 
 ## Back up A before changing the pin
 
