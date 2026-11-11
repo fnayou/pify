@@ -1,4 +1,4 @@
-"""Exercise session-bound Pify jobs through official Pi 1.4.0 RPC."""
+"""Exercise session-bound Pify jobs through official Pi 1.5.2 RPC."""
 
 import json
 import os
@@ -74,8 +74,8 @@ def main() -> None:
         workspace.mkdir()
         env = os.environ.copy()
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
-        if run_pi(["--version"], workspace, env).strip() != "1.4.0":
-            raise AssertionError("Pi 1.4.0 fixture required")
+        if run_pi(["--version"], workspace, env).strip() != "1.5.2":
+            raise AssertionError("Pi 1.5.2 fixture required")
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
 
         denied = notice(rpc(workspace, env, {"id": "denied", "type": "prompt", "message": "/pify-job start sleep 30"}))

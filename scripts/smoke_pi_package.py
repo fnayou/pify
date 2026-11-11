@@ -340,8 +340,8 @@ def main() -> None:
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
 
         version = run_pi(["--version"], workspace, env).strip()
-        if version != "1.4.0":
-            raise AssertionError(f"Pi 1.4.0 fixture required, got {version!r}")
+        if version != "1.5.2":
+            raise AssertionError(f"Pi 1.5.2 fixture required, got {version!r}")
 
         run_pi(["install", str(other_package)], workspace, env)
         settings_before_pify = json.loads((agent / "settings.json").read_text())

@@ -97,8 +97,8 @@ def main() -> None:
         })
         env.pop("PI_PACKAGE_DIR", None)
         env.pop("PI_OFFLINE", None)
-        if run_pi(["--version"], workspace, env).strip() != "1.4.0":
-            raise AssertionError("Official Pi 1.4.0 is required")
+        if run_pi(["--version"], workspace, env).strip() != "1.5.2":
+            raise AssertionError("Official Pi 1.5.2 is required")
         run_pi(["install", str(other_package)], workspace, env)
         settings_file = agent / "settings.json"
         settings = json.loads(settings_file.read_text())

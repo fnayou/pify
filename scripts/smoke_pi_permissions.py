@@ -50,8 +50,8 @@ def main() -> None:
         workspace.mkdir()
         env = os.environ.copy()
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1"})
-        if run(["--version"], workspace, env).strip() != "1.4.0":
-            raise AssertionError("Pi 1.4.0 fixture required")
+        if run(["--version"], workspace, env).strip() != "1.5.2":
+            raise AssertionError("Pi 1.5.2 fixture required")
         run(["install", str(PACKAGE_ROOT)], workspace, env)
         default = permission_result(workspace, env, None, "")
         if default["mode"] != "balanced" or default["outcome"] != "clarification_required":

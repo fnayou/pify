@@ -70,7 +70,7 @@ function nativeCompaction(agent, project) {
   const local = project.compaction?.enabled;
   if (local !== undefined) return typeof local === "boolean" ? { status: local ? "enabled" : "disabled", source: "project" } : { status: "unknown", source: "project" };
   if (user !== undefined) return typeof user === "boolean" ? { status: user ? "enabled" : "disabled", source: "agent" } : { status: "unknown", source: "agent" };
-  return { status: "enabled", source: "Pi 1.4.0 default" };
+  return { status: "enabled", source: "Pi 1.5.2 default" };
 }
 
 /** Detect documented Pi optimization entry points without executing or modifying them. */

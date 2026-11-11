@@ -1,4 +1,4 @@
-"""Verify Pify leaves command output intact through official Pi 1.4.0."""
+"""Verify Pify leaves command output intact through official Pi 1.5.2."""
 
 import json
 import os
@@ -32,8 +32,8 @@ def fixture(root: Path, name: str, install_pify: bool) -> tuple[Path, Path, dict
     (extensions / "rtk.ts").write_text("export default function () {}\n")
     env = os.environ.copy()
     env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
-    if run_pi(["--version"], workspace, env).strip() != "1.4.0":
-        raise AssertionError("Pi 1.4.0 fixture required")
+    if run_pi(["--version"], workspace, env).strip() != "1.5.2":
+        raise AssertionError("Pi 1.5.2 fixture required")
     if install_pify:
         original_hook = (extensions / "rtk.ts").read_bytes()
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)

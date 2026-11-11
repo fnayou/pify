@@ -1,4 +1,4 @@
-"""Verify one-project workflow opt-in through official Pi 1.4.0."""
+"""Verify one-project workflow opt-in through official Pi 1.5.2."""
 
 import json
 import os
@@ -96,8 +96,8 @@ def main() -> None:
         (second / "AGENTS.md").write_text("second project instructions\n")
         env = os.environ.copy()
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
-        if run_pi(["--version"], first, env).strip() != "1.4.0":
-            raise AssertionError("Pi 1.4.0 fixture required")
+        if run_pi(["--version"], first, env).strip() != "1.5.2":
+            raise AssertionError("Pi 1.5.2 fixture required")
         run_pi(["install", str(PACKAGE_ROOT)], first, env)
 
         denied = notice(rpc(first, env, {"id": "denied", "type": "prompt", "message": "/pify-workflow enable"}))
