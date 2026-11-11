@@ -2,6 +2,7 @@
 
 **Status:** The design from [#89](https://github.com/fnayou/pify/issues/89) has private local and pinned-Git source review slices. The [MVP gate #81](https://github.com/fnayou/pify/issues/81) remains open. Pify is a bootstrap project; this is not a supported installation guide or a release claim.
 
+The conditional [first-distribution decision](../adr/0001-first-distribution-source.md) selects one full Git commit pin through native Pi after the acceptance gate passes. It does not approve a current development commit as a release.
 The [native pinned-Git setup candidate](native-git-setup-candidate.md) puts the tested Pi commands in one operator sequence. It remains a development candidate until the MVP gate passes.
 The [backed-up Git update candidate](native-git-update-candidate.md) adds a read-only A-to-B preview, private commit backup, native Pi pin replacement, and offline A recovery. It also remains a development candidate.
 

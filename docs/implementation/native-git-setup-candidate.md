@@ -1,6 +1,6 @@
 # Candidate native Pi setup from a pinned Git commit
 
-**Status, 2026-11-11:** This is a reviewed development candidate for [MVP gate #81](https://github.com/fnayou/pify/issues/81), not a supported installation guide or release. Pify remains a bootstrap project. No package has been published. The steps below describe the native Pi entrypoint tested in disposable agent directories; they are not approval to change an active Pi installation.
+**Status, 2026-11-11:** [ADR-0001](../adr/0001-first-distribution-source.md) selects a full Git commit as the first supported source only after [MVP gate #81](https://github.com/fnayou/pify/issues/81) passes. This remains a development candidate, not a supported installation guide or release. Pify remains a bootstrap project. No package has been published. The steps below describe the native Pi entrypoint tested in disposable agent directories; they are not approval to change an active Pi installation.
 
 ## Source review and preflight
 
