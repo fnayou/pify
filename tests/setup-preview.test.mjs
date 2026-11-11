@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { formatSetupPreview, previewGitSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
+import { formatSetupPreview, previewGitSetup, previewGitUpdateSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
 
 const GIT_COMMIT = "a".repeat(40);
 
@@ -149,6 +149,48 @@ test("Git preview requires a detached full commit and reports conflicting declar
   assert.equal((await previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT })).piRegistration.action, "conflict");
   await writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [packageRoot] }));
   assert.equal((await previewGitSetup({ agentDir, packageRoot, commit: GIT_COMMIT })).piRegistration.action, "conflict");
+});
+
+test("Git update preview requires the exact reviewed installed pin and changes nothing", async (t) => {
+  const old = await fixture(t);
+  const next = await fixture(t);
+  const nextCommit = "b".repeat(40);
+  await mkdir(path.join(old.packageRoot, ".git"));
+  await writeFile(path.join(old.packageRoot, ".git", "HEAD"), `${GIT_COMMIT}\n`);
+  await mkdir(path.join(next.packageRoot, ".git"));
+  await writeFile(path.join(next.packageRoot, ".git", "HEAD"), `${nextCommit}\n`);
+  const oldReview = (await previewGitSetup({ agentDir: old.agentDir, packageRoot: old.packageRoot, commit: GIT_COMMIT })).source.reviewCode;
+  const managed = path.join(old.agentDir, "git", "github.com", "fnayou", "pify");
+  await mkdir(path.dirname(managed), { recursive: true });
+  await cp(old.packageRoot, managed, { recursive: true });
+  const settingsFile = path.join(old.agentDir, "settings.json");
+  const source = `git:github.com/fnayou/pify@${GIT_COMMIT}`;
+  await writeFile(settingsFile, JSON.stringify({ packages: ["/other/package", source], apiKey: "PRIVATE_TEST_VALUE" }));
+  const before = [await readFile(settingsFile), await readFile(path.join(managed, "src", "helper.mjs"))];
+
+  const input = { agentDir: old.agentDir, packageRoot: next.packageRoot,
+    fromCommit: GIT_COMMIT, fromReviewCode: oldReview, toCommit: nextCommit };
+  const report = await previewGitUpdateSetup(input);
+  assert.equal(report.schema, "pify.git-update-preview/v1");
+  assert.equal(report.piRegistration.action, "replace_pinned_git_declaration");
+  assert.equal(report.piRegistration.fromSource, source);
+  assert.equal(report.piRegistration.toSource, `git:github.com/fnayou/pify@${nextCommit}`);
+  assert.deepEqual(report.transition, { fromCommit: GIT_COMMIT, toCommit: nextCommit, backupRequired: true });
+  assert.match(report.source.reviewCode, /^[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(report).includes("PRIVATE_TEST_VALUE"), false);
+  assert.deepEqual([await readFile(settingsFile), await readFile(path.join(managed, "src", "helper.mjs"))], before);
+
+  await assert.rejects(previewGitUpdateSetup({ ...input, fromReviewCode: "0".repeat(64) }), /no longer matches/);
+  await assert.rejects(previewGitUpdateSetup({ ...input, toCommit: GIT_COMMIT }), /different commit/);
+  await writeFile(path.join(managed, "src", "helper.mjs"), "export const changed = true;\n");
+  await assert.rejects(previewGitUpdateSetup(input), /no longer matches/);
+  await writeFile(path.join(managed, "src", "helper.mjs"), before[1]);
+  await writeFile(settingsFile, JSON.stringify({ packages: [source, source] }));
+  await assert.rejects(previewGitUpdateSetup(input), /no longer matches/);
+  await writeFile(settingsFile, JSON.stringify({ packages: [source, "npm:@fnayou/pify@2026.11.4"] }));
+  await assert.rejects(previewGitUpdateSetup(input), /no longer matches/);
+  await writeFile(settingsFile, JSON.stringify({ packages: [] }));
+  await assert.rejects(previewGitUpdateSetup(input), /no longer matches/);
 });
 
 test("runtime source digest refuses linked imported files", async (t) => {

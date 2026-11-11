@@ -145,6 +145,18 @@ def main() -> None:
         run_pi(["install", old_source], workspace, env)
         assert_installed(old_source, old, old_version, old_preview["source"]["reviewCode"])
 
+        update_preview = setup_report(
+            workspace, env,
+            f"preview-update-git {old} {old_preview['source']['reviewCode']} {new}",
+            ["-e", str(working), "--pify-preflight"],
+        )
+        if update_preview.get("schema") != "pify.git-update-preview/v1" or \
+           update_preview["piRegistration"]["action"] != "replace_pinned_git_declaration" or \
+           update_preview["transition"] != {"fromCommit": old, "toCommit": new, "backupRequired": True} or \
+           update_preview["source"]["reviewCode"] != new_preview["source"]["reviewCode"]:
+            raise AssertionError(f"Unexpected reviewed Git version-change preview: {update_preview}")
+        assert_installed(old_source, old, old_version, old_preview["source"]["reviewCode"])
+
         incomplete_backup = root / "incomplete-backup.git"
         git(["init", "--bare", str(incomplete_backup)])
         try:
@@ -183,6 +195,13 @@ def main() -> None:
             raise AssertionError("Health claimed the incomplete update was installed")
         if current_user_state() != user_state:
             raise AssertionError("Failed version change modified unrelated user files")
+        blocked_preview = setup_report(
+            workspace, env,
+            f"preview-update-git {old} {old_preview['source']['reviewCode']} {new}",
+            ["-e", str(working), "--pify-preflight"],
+        )
+        if blocked_preview.get("status") != "error" or "no longer matches" not in blocked_preview.get("message", ""):
+            raise AssertionError("Incomplete Git update was accepted for another version change")
 
         unavailable_mirror = mirror.with_name("source-unavailable.git")
         mirror.rename(unavailable_mirror)
