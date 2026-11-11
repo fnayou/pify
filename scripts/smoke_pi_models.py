@@ -139,7 +139,7 @@ def assistant_text(events: list[dict]) -> str:
     return "".join(block.get("text", "") for block in messages[-1]["content"] if block["type"] == "text")
 
 
-def validate_litellm(base_url: str, model: str, key: str) -> dict[str, str]:
+def validate_litellm_inputs(base_url: str, model: str, key: str) -> None:
     parsed = urlsplit(base_url)
     if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("Use a LiteLLM base URL without credentials, query, or fragment")
@@ -156,41 +156,24 @@ def validate_litellm(base_url: str, model: str, key: str) -> dict[str, str]:
     if not key:
         raise ValueError("A LiteLLM virtual key is required")
 
-    with tempfile.TemporaryDirectory(prefix="pify-live-cloud-") as fixture:
-        root = Path(fixture)
-        agent = root / "agent"
-        workspace = root / "workspace"
-        agent.mkdir()
-        workspace.mkdir()
-        config = {"providers": {"pify-litellm-validation": {
-            "baseUrl": base_url.rstrip("/"), "api": "openai-completions",
-            "apiKey": "$PIFY_LITELLM_API_KEY", "authHeader": True,
-            "models": [{"id": model, "contextWindow": 8192, "maxTokens": 128}],
-        }}}
-        models_file = agent / "models.json"
+
+def run_litellm_in_agent(agent: Path, workspace: Path, env: dict[str, str],
+                         base_url: str, model: str, key: str) -> None:
+    validate_litellm_inputs(base_url, model, key)
+    models_file = agent / "models.json"
+    previous = models_file.read_bytes() if models_file.exists() else None
+    previous_mode = models_file.stat().st_mode & 0o777 if previous is not None else None
+    config = {"providers": {"pify-litellm-validation": {
+        "baseUrl": base_url.rstrip("/"), "api": "openai-completions",
+        "apiKey": "$PIFY_LITELLM_API_KEY", "authHeader": True,
+        "models": [{"id": model, "contextWindow": 8192, "maxTokens": 128}],
+    }}}
+    try:
         models_file.write_text(json.dumps(config), encoding="utf-8")
         models_file.chmod(0o600)
-        env = os.environ.copy()
-        env.update({
-            "PI_CODING_AGENT_DIR": str(agent),
-            "PI_CODING_AGENT_SESSION_DIR": str(root / "sessions"),
-            "PI_TELEMETRY": "0",
-            "PIFY_LITELLM_API_KEY": key,
-            "TERM": "xterm-256color",
-        })
-        env.pop("PI_OFFLINE", None)
-        env.pop("PI_PACKAGE_DIR", None)
-        version = subprocess.run(
-            ["pi", "--version"], cwd=workspace, env=env, text=True,
-            capture_output=True, timeout=10, check=True,
-        ).stdout.strip()
-        if version != "1.4.0":
-            raise RuntimeError(f"Pi 1.4.0 required; found {version}")
-        subprocess.run(
-            ["pi", "install", str(PACKAGE_ROOT)], cwd=workspace, env={**env, "PI_OFFLINE": "1"},
-            text=True, capture_output=True, timeout=30, check=True,
-        )
-        rpc = RpcSession(workspace, env, offline=False, timeout=90)
+        model_env = {**env, "PIFY_LITELLM_API_KEY": key, "TERM": "xterm-256color"}
+        model_env.pop("PI_OFFLINE", None)
+        rpc = RpcSession(workspace, model_env, offline=False, timeout=90)
         try:
             rpc.send({"id": "cloud-model", "type": "set_model", "provider": "pify-litellm-validation", "modelId": model})
             expected = f"PIFY_CLOUD_READY_{secrets.token_hex(8)}"
@@ -206,6 +189,42 @@ def validate_litellm(base_url: str, model: str, key: str) -> dict[str, str]:
                 raise AssertionError("Pify health did not recognize the isolated package")
         finally:
             rpc.close()
+    finally:
+        if previous is None:
+            models_file.unlink(missing_ok=True)
+        else:
+            models_file.write_bytes(previous)
+            models_file.chmod(previous_mode)
+
+
+def validate_litellm(base_url: str, model: str, key: str) -> dict[str, str]:
+    validate_litellm_inputs(base_url, model, key)
+    with tempfile.TemporaryDirectory(prefix="pify-live-cloud-") as fixture:
+        root = Path(fixture)
+        agent = root / "agent"
+        workspace = root / "workspace"
+        agent.mkdir()
+        workspace.mkdir()
+        env = os.environ.copy()
+        env.update({
+            "PI_CODING_AGENT_DIR": str(agent),
+            "PI_CODING_AGENT_SESSION_DIR": str(root / "sessions"),
+            "PI_TELEMETRY": "0",
+            "TERM": "xterm-256color",
+        })
+        env.pop("PI_OFFLINE", None)
+        env.pop("PI_PACKAGE_DIR", None)
+        version = subprocess.run(
+            ["pi", "--version"], cwd=workspace, env=env, text=True,
+            capture_output=True, timeout=10, check=True,
+        ).stdout.strip()
+        if version != "1.4.0":
+            raise RuntimeError(f"Pi 1.4.0 required; found {version}")
+        subprocess.run(
+            ["pi", "install", str(PACKAGE_ROOT)], cwd=workspace, env={**env, "PI_OFFLINE": "1"},
+            text=True, capture_output=True, timeout=30, check=True,
+        )
+        run_litellm_in_agent(agent, workspace, env, base_url, model, key)
     return {"status": "passed", "gateway": "litellm", "protocol": "openai-completions", "piVersion": version, "platform": os.uname().sysname}
 
 
