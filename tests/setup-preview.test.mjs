@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import { formatSetupPreview, previewGitSetup, previewGitUpdateSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
+import { formatGitSetupPreview, formatSetupPreview, previewGitSetup, previewGitUpdateSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup } from "../src/setup-preview.mjs";
 
 const GIT_COMMIT = "a".repeat(40);
 
@@ -177,6 +177,7 @@ test("Git update preview requires the exact reviewed installed pin and changes n
   assert.equal(report.piRegistration.toSource, `git:github.com/fnayou/pify@${nextCommit}`);
   assert.deepEqual(report.transition, { fromCommit: GIT_COMMIT, toCommit: nextCommit, backupRequired: true });
   assert.match(report.source.reviewCode, /^[a-f0-9]{64}$/);
+  assert.match(formatGitSetupPreview(report), /backup required before Pi install: yes/);
   assert.equal(JSON.stringify(report).includes("PRIVATE_TEST_VALUE"), false);
   assert.deepEqual([await readFile(settingsFile), await readFile(path.join(managed, "src", "helper.mjs"))], before);
 

@@ -148,7 +148,7 @@ def main() -> None:
         update_preview = setup_report(
             workspace, env,
             f"preview-update-git {old} {old_preview['source']['reviewCode']} {new}",
-            ["-e", str(working), "--pify-preflight"],
+            ["--no-extensions", "-e", str(working), "--pify-preflight"],
         )
         if update_preview.get("schema") != "pify.git-update-preview/v1" or \
            update_preview["piRegistration"]["action"] != "replace_pinned_git_declaration" or \
@@ -198,7 +198,7 @@ def main() -> None:
         blocked_preview = setup_report(
             workspace, env,
             f"preview-update-git {old} {old_preview['source']['reviewCode']} {new}",
-            ["-e", str(working), "--pify-preflight"],
+            ["--no-extensions", "-e", str(working), "--pify-preflight"],
         )
         if blocked_preview.get("status") != "error" or "no longer matches" not in blocked_preview.get("message", ""):
             raise AssertionError("Incomplete Git update was accepted for another version change")
