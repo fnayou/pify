@@ -35,6 +35,14 @@ def main() -> None:
     args = parser.parse_args()
     if not re.fullmatch(r"[a-f0-9]{40}", args.commit):
         parser.error("commit must be a full lowercase Git hash")
+    try:
+        version_check = subprocess.run(["pi", "--version"], text=True, capture_output=True,
+                                       timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        parser.error(f"Could not query Pi version: {type(error).__name__}")
+    pi_version = version_check.stdout.strip()
+    if version_check.returncode != 0 or pi_version != "1.5.2":
+        parser.error(f"Official Pi 1.5.2 is required on PATH; found {pi_version or 'unknown'}")
     hosted = None
     if args.live_litellm:
         if not sys.stdin.isatty():
@@ -97,8 +105,8 @@ def main() -> None:
         })
         env.pop("PI_PACKAGE_DIR", None)
         env.pop("PI_OFFLINE", None)
-        if run_pi(["--version"], workspace, env).strip() != "1.4.0":
-            raise AssertionError("Official Pi 1.4.0 is required")
+        if run_pi(["--version"], workspace, env).strip() != pi_version:
+            raise AssertionError("Official Pi 1.5.2 is required")
 
         git(["clone", "--no-checkout", GITHUB_URL, str(reviewed)], root, env)
         git(["checkout", "--detach", args.commit], reviewed, env)
@@ -212,10 +220,10 @@ def main() -> None:
             raise AssertionError("Fresh GitHub removal left Pify installed or changed the project note")
     if hosted:
         print(json.dumps({"status": "passed", "gateway": "litellm", "protocol": "openai-completions",
-                          "gitCommit": args.commit, "piVersion": "1.4.0", "platform": os.uname().sysname,
+                          "gitCommit": args.commit, "piVersion": pi_version, "platform": os.uname().sysname,
                           "journey": "fresh-and-existing-git"}, sort_keys=True))
     else:
-        print(f"Pify fresh and existing GitHub pin smoke passed: {args.commit} Pi 1.4.0 {os.uname().sysname}")
+        print(f"Pify fresh and existing GitHub pin smoke passed: {args.commit} Pi {pi_version} {os.uname().sysname}")
 
 
 if __name__ == "__main__":

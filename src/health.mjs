@@ -7,7 +7,7 @@ import { inspectProjectWorkflow } from "./project-workflow.mjs";
 import { inspectThemeSelection } from "./theme-selection.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
-const SUPPORTED_PI_VERSION = "1.4.0";
+const SUPPORTED_PI_VERSION = "1.5.2";
 const NPM_SOURCE = "npm:@fnayou/pify";
 const GIT_SOURCE = "git:github.com/fnayou/pify";
 

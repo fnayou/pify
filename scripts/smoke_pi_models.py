@@ -218,8 +218,8 @@ def validate_litellm(base_url: str, model: str, key: str) -> dict[str, str]:
             ["pi", "--version"], cwd=workspace, env=env, text=True,
             capture_output=True, timeout=10, check=True,
         ).stdout.strip()
-        if version != "1.4.0":
-            raise RuntimeError(f"Pi 1.4.0 required; found {version}")
+        if version != "1.5.2":
+            raise RuntimeError(f"Pi 1.5.2 required; found {version}")
         subprocess.run(
             ["pi", "install", str(PACKAGE_ROOT)], cwd=workspace, env={**env, "PI_OFFLINE": "1"},
             text=True, capture_output=True, timeout=30, check=True,
@@ -243,7 +243,7 @@ def fixture_main() -> None:
             env = os.environ.copy()
             env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
             version = subprocess.run(["pi", "--version"], cwd=workspace, env=env, text=True, capture_output=True, timeout=10, check=True).stdout.strip()
-            assert version == "1.4.0", f"Expected Pi 1.4.0, got {version}"
+            assert version == "1.5.2", f"Expected Pi 1.5.2, got {version}"
             subprocess.run(["pi", "install", str(PACKAGE_ROOT)], cwd=workspace, env=env, text=True, capture_output=True, timeout=30, check=True)
             (agent / "models.json").write_text(json.dumps({"providers": {
                 "pify-local-fixture": {"baseUrl": f"http://127.0.0.1:{local.server_port}/v1", "api": "openai-completions", "apiKey": "fixture-key", "models": [{"id": "fixture-local", "contextWindow": 8192, "maxTokens": 256}]},
