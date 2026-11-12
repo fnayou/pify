@@ -63,6 +63,22 @@ The commit above passed the [public-GitHub source smoke](https://github.com/fnay
 
 The integrated path passed on macOS with a loopback LiteLLM-compatible fixture and dummy key on 2026-11-11 against commit `df4477650e2580bed2c001e52b78641d62c404bc`. Reproduce it without a real key using `python3 scripts/smoke_pi_live_github_litellm_fixture.py df4477650e2580bed2c001e52b78641d62c404bc`; this still fetches the public GitHub commit and uses only temporary Pi state. The [Pi 1.5.2 live-source run](https://github.com/fnayou/pify/actions/runs/43119841151) passed on macOS and Linux against the current reviewed commit. Those automated runs alone do not prove a hosted call. The owner then ran `--live-litellm` against the reviewed Pi 1.5.2 Git commit on macOS and [recorded a passing redacted result](https://github.com/fnayou/pify/issues/81#issuecomment-6809922371), confirming the route reached a remote hosted model. The earlier standalone hosted result remains separate evidence. A real hosted call on Linux has not been recorded.
 
+### Private Linux hosted check in Docker
+
+Run this from the repository root on a host with Docker. It uses the same reviewed commit and official Pi 1.5.2 in a disposable Linux container. Only the repository's `scripts/` directory is mounted, read-only. The container has a read-only root and temporary home, npm prefix, cache, Pi agents, and workspaces. It does not mount the host's Pi directory, credentials, or Docker socket. The `/tmp` mount needs `exec` so the temporary Pi binary can run.
+
+```sh
+docker run --rm -it --read-only \
+  --tmpfs /tmp:rw,exec,mode=1777,size=2g \
+  --tmpfs /home/pify:rw,mode=0700,size=128m \
+  -e HOME=/home/pify -e NPM_CONFIG_CACHE=/tmp/npm-cache \
+  -v "$PWD/scripts:/repo/scripts:ro" -w /repo \
+  node:22.23.4-bookworm@sha256:7702d8aa4d5910871692af4480eb3ba86f23047a6417a44d857d06c95d060d3f \
+  sh -lc 'npm install --global --prefix /tmp/pi-runtime --ignore-scripts @earendil-works/pi-coding-agent@1.5.2 && PATH="/tmp/pi-runtime/bin:$PATH" python3 scripts/smoke_pi_live_github.py 9faefeb17b55d6ec15d078eaa1325ee36bb8bab2 --live-litellm'
+```
+
+Enter the HTTPS LiteLLM `/v1` URL, model alias, and virtual key only at the hidden prompts. Confirm separately that the selected alias routes to a remote hosted model. A passing result reports `"platform": "Linux"`, `"piVersion": "1.5.2"`, the reviewed `gitCommit`, and `"status": "passed"`. Record only that redacted JSON in [MVP gate #81](https://github.com/fnayou/pify/issues/81); keep the endpoint, alias, key, provider, and response text private. This check does not change the active Pi installation or create a release. A [dummy-key loopback run](https://github.com/fnayou/pify/issues/139) passed with this container layout; it does not count as a live hosted result.
+
 ## Availability and evidence
 
 Stopping LM Studio makes that local endpoint unavailable. It does not block Pi's cloud model selection or Pify's `/pify-health` command. The CI fixture stops its local endpoint, then completes an Anthropic-protocol prompt and a health check. The same smoke runs on macOS and Linux with the exact CI-pinned Pi version. A separate macOS test used a real LM Studio server and a locally loaded model at an 8,192-token context; Pi returned `READY`. Pify's package does not download models or edit `models.json`.
