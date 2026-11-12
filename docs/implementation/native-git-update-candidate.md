@@ -1,17 +1,16 @@
 # Candidate backed-up pinned Git update
 
-**Status, 2026-11-11:** This is a disposable-fixture procedure for the conditional [Git distribution choice](../adr/0001-first-distribution-source.md) and [MVP gate #81](https://github.com/fnayou/pify/issues/81), not an approved user update or release instruction. Pify remains a bootstrap project. It uses native Pi package operations and a private Git backup; it must not be applied to an active Pi installation until the release and backup policy is approved.
+**Status, 2026-11-12:** This is an owner-review candidate for the conditional [Git distribution choice](../adr/0001-first-distribution-source.md), [MVP gate #81](https://github.com/fnayou/pify/issues/81), and [backup policy issue #137](https://github.com/fnayou/pify/issues/137). It is not an approved user update or release instruction. Pify remains a bootstrap project. It uses native Pi package operations and a private Git backup; it must not be applied to an active Pi installation until the owner approves the procedure and a release source.
 
 ## Preconditions and review
 
 Start from the [native pinned-Git setup candidate](native-git-setup-candidate.md) in an isolated Pi agent directory. Record its full installed commit **A**, the A review code from the original preflight, and the exact `git:github.com/fnayou/pify@A` declaration. In an ordinary session, require `/pify-setup verify-git <A> <A-review-code>` to report `verified` and `/pify-health` to report `installed (git)`. Choose a distinct full commit **B** from the public repository and review its source before loading it. A changed A checkout, missing review code, conflicting declaration, or damaged Pi state stops the procedure.
 
-The following commands describe the tested fixture order. Keep the variables in one shell. Use a new, absent private backup path without spaces and outside the Pi agent and any real project; never reuse an earlier backup path. The example assumes the isolated setup already set `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`:
+The following commands describe the tested fixture order. Keep the variables in one shell and work from a disposable review directory. The example assumes the isolated setup already set `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR`:
 
 ```sh
 PIFY_OLD_COMMIT='PASTE_OLD_FULL_COMMIT'
 PIFY_NEW_COMMIT='PASTE_NEW_FULL_COMMIT'
-PIFY_BACKUP="$PWD/pify-backup-$PIFY_OLD_COMMIT.git"
 git clone --no-checkout https://github.com/fnayou/pify.git pify-next-reviewed
 git -C pify-next-reviewed checkout --detach "$PIFY_NEW_COMMIT"
 git -C pify-next-reviewed rev-parse HEAD
@@ -29,9 +28,42 @@ pi --no-extensions -e "$PWD/pify-next-reviewed" --pify-preflight
 
 `--no-extensions` suppresses discovery of installed A while explicit `-e` still loads reviewed B; otherwise duplicate Pify tools and flags prevent Pi 1.5.2 from starting. Run `/pify-setup preview-update-git <A> <A-review-code> <B>` inside it. Require `replace_pinned_git_declaration`, exact A and B sources, `backupRequired: true`, the expected B runtime digest and review code, and no unresolved resource collision. The command checks that the installed A pin still matches its prior review. It does not inspect or create the backup, install B, approve a conflict, or write Pify state. Pi may initialize its own files while starting the transient session. Exit Pi before creating the backup.
 
+## Proposed backup location and retention
+
+Choose a private backup root outside the Pi agent directory and every project. The default candidate is `$HOME/.pify-backups`; the user may select another absolute path without spaces before the update. Create it with mode 0700, require it to be owned by the current user and not a symlink, and stop if an existing directory is accessible to others. The root holds only backup records for explicit Pify Git updates; no process deletes them automatically.
+
+After the read-only preview passes, use a fresh directory under that root for this transition. `mktemp` prevents reuse of an earlier backup path. Keep the backup and its recorded A commit after both success and rollback; deletion is a separate, explicit user decision. This policy favors recovery over automatic cleanup and uses storage proportional to retained Git objects. A Git-only backup does not include Pi settings, credentials, sessions, model configuration, or Pify's theme journal. Preserve those separately under a future release backup policy if they are required; this procedure does not claim to recover damaged settings or a lost backup.
+
+```sh
+PIFY_BACKUP_ROOT="$HOME/.pify-backups"
+export PIFY_BACKUP_ROOT
+(umask 077; mkdir -p "$PIFY_BACKUP_ROOT")
+python3 - <<'PY'
+import os
+import stat
+from pathlib import Path
+
+root = Path(os.environ["PIFY_BACKUP_ROOT"])
+info = root.lstat()
+if not root.is_absolute() or " " in str(root) or not stat.S_ISDIR(info.st_mode) or \
+        info.st_uid != os.getuid() or info.st_mode & 0o077:
+    raise SystemExit("Backup root must be an owned, private, absolute directory without spaces")
+resolved_root = root.resolve()
+for forbidden in (Path(os.environ["PI_CODING_AGENT_DIR"]), Path.cwd()):
+    resolved_forbidden = forbidden.resolve()
+    if resolved_root == resolved_forbidden or resolved_root in resolved_forbidden.parents or \
+            resolved_forbidden in resolved_root.parents:
+        raise SystemExit("Backup root must be outside the Pi agent and review workspace")
+PY
+PIFY_BACKUP_DIR="$(mktemp -d "$PIFY_BACKUP_ROOT/$PIFY_OLD_COMMIT.XXXXXXXX")"
+PIFY_BACKUP="$PIFY_BACKUP_DIR/source.git"
+```
+
+The permission check must pass before creating the backup. Keep a private mode-0600 change record in `PIFY_BACKUP_DIR` with A and B commits, both review codes, the backup path, Pi version, UTC time, and an outcome of `prepared`, `verified`, or `rolled_back`. Update the outcome only after the corresponding checks pass. Do not record credentials, model responses, or provider details. Do not create a new version, delete a prior backup, or change Pi settings automatically.
+
 ## Back up A before changing the pin
 
-Exit Pi before copying the installed Git commit. Create a private bare mirror from the Pi-managed A checkout, then verify its ref and object integrity. A missing or failed backup stops the update:
+Exit Pi before copying the installed Git commit. Create a private bare mirror at the fresh `PIFY_BACKUP` path from the Pi-managed A checkout, then verify its ref and object integrity. A missing or failed backup stops the update:
 
 ```sh
 (umask 077; git init --bare "$PIFY_BACKUP")
@@ -41,7 +73,7 @@ git --git-dir "$PIFY_BACKUP" rev-parse --verify 'refs/heads/pify-backup^{commit}
 git --git-dir "$PIFY_BACKUP" fsck --strict --no-reflogs
 ```
 
-Confirm the printed backup ref equals A. This backup holds the installed Git commit, not Pi settings, credentials, sessions, model configuration, or Pify's theme journal. Keep those resources separate and private under any later approved release backup policy.
+Confirm the printed backup ref equals A. Keep the backup directory and private change record after the update. The backup holds the installed Git commit, not Pi settings, credentials, sessions, model configuration, or Pify's theme journal.
 
 ## Native update and verification
 
@@ -66,4 +98,4 @@ GIT_CONFIG_VALUE_0="https://github.com/fnayou/pify" \
 pi install "git:github.com/fnayou/pify@$PIFY_OLD_COMMIT"
 ```
 
-The rewrite applies only to this invocation. In a new ordinary session, run `/pify-setup verify-git <A> <A-review-code>` and `/pify-health`; confirm the A checkout, exact A declaration, restored runtime bytes, and no incomplete-update marker. The [synthetic version-change smoke](../../scripts/smoke_pi_git_version_change.py) proves this path with the original source unavailable on macOS and Linux CI. It does not cover a corrupt settings file, lost backup, every npm failure phase, or an active-user migration. Keep [release policy #55](https://github.com/fnayou/pify/issues/55) and the MVP gate open until those steps and a supported distribution are approved.
+The rewrite applies only to this invocation. In a new ordinary session, run `/pify-setup verify-git <A> <A-review-code>` and `/pify-health`; confirm the A checkout, exact A declaration, restored runtime bytes, and no incomplete-update marker. Retain the private backup and record after recovery. The [synthetic version-change smoke](../../scripts/smoke_pi_git_version_change.py) proves this path with the original source unavailable on macOS and Linux CI under Pi 1.5.2. It does not cover a corrupt settings file, lost backup, every npm failure phase, or an active-user migration. Owner approval of [#137](https://github.com/fnayou/pify/issues/137) is required before this becomes a user procedure. Keep [release policy #55](https://github.com/fnayou/pify/issues/55) and the MVP gate open until their separate criteria pass.
