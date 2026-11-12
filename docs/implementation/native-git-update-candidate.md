@@ -1,6 +1,6 @@
 # Candidate backed-up pinned Git update
 
-**Status, 2026-11-12:** This is an owner-review candidate for the conditional [Git distribution choice](../adr/0001-first-distribution-source.md), [MVP gate #81](https://github.com/fnayou/pify/issues/81), and [backup policy issue #137](https://github.com/fnayou/pify/issues/137). It is not an approved user update or release instruction. Pify remains a bootstrap project. It uses native Pi package operations and a private Git backup; it must not be applied to an active Pi installation until the owner approves the procedure and a release source.
+**Status, 2026-11-12:** The owner [approved the private backup and rollback policy](https://github.com/fnayou/pify/issues/137#issuecomment-6811769162) from [#137](https://github.com/fnayou/pify/issues/137). This is still a conditional candidate for the [Git distribution choice](../adr/0001-first-distribution-source.md) and [MVP gate #81](https://github.com/fnayou/pify/issues/81), not a supported user update or release instruction. Pify remains a bootstrap project. Applying it to an active Pi installation still requires a reviewed release source and the final gate decision.
 
 ## Preconditions and review
 
@@ -28,7 +28,7 @@ pi --no-extensions -e "$PWD/pify-next-reviewed" --pify-preflight
 
 `--no-extensions` suppresses discovery of installed A while explicit `-e` still loads reviewed B; otherwise duplicate Pify tools and flags prevent Pi 1.5.2 from starting. Run `/pify-setup preview-update-git <A> <A-review-code> <B>` inside it. Require `replace_pinned_git_declaration`, exact A and B sources, `backupRequired: true`, the expected B runtime digest and review code, and no unresolved resource collision. The command checks that the installed A pin still matches its prior review. It does not inspect or create the backup, install B, approve a conflict, or write Pify state. Pi may initialize its own files while starting the transient session. Exit Pi before creating the backup.
 
-## Proposed backup location and retention
+## Approved backup location and retention
 
 Choose a private backup root outside the Pi agent directory and every project. The default candidate is `$HOME/.pify-backups`; the user may select another absolute path without spaces before the update. Create it with mode 0700, require it to be owned by the current user and not a symlink, and stop if an existing directory is accessible to others. The root holds only backup records for explicit Pify Git updates; no process deletes them automatically.
 
@@ -98,4 +98,4 @@ GIT_CONFIG_VALUE_0="https://github.com/fnayou/pify" \
 pi install "git:github.com/fnayou/pify@$PIFY_OLD_COMMIT"
 ```
 
-The rewrite applies only to this invocation. In a new ordinary session, run `/pify-setup verify-git <A> <A-review-code>` and `/pify-health`; confirm the A checkout, exact A declaration, restored runtime bytes, and no incomplete-update marker. Retain the private backup and record after recovery. The [synthetic version-change smoke](../../scripts/smoke_pi_git_version_change.py) proves this path with the original source unavailable on macOS and Linux CI under Pi 1.5.2. It does not cover a corrupt settings file, lost backup, every npm failure phase, or an active-user migration. Owner approval of [#137](https://github.com/fnayou/pify/issues/137) is required before this becomes a user procedure. Keep [release policy #55](https://github.com/fnayou/pify/issues/55) and the MVP gate open until their separate criteria pass.
+The rewrite applies only to this invocation. In a new ordinary session, run `/pify-setup verify-git <A> <A-review-code>` and `/pify-health`; confirm the A checkout, exact A declaration, restored runtime bytes, and no incomplete-update marker. Retain the private backup and record after recovery. The [synthetic version-change smoke](../../scripts/smoke_pi_git_version_change.py) proves this path with the original source unavailable on macOS and Linux CI under Pi 1.5.2. It does not cover a corrupt settings file, lost backup, every npm failure phase, or an active-user migration. The owner approved the policy, but a reviewed release source and final [#81](https://github.com/fnayou/pify/issues/81) decision are still required before this becomes a supported user procedure. Keep [release policy #55](https://github.com/fnayou/pify/issues/55) open until its separate criteria pass.
