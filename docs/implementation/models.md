@@ -30,6 +30,18 @@ Choose an actual `data[].id` from that response. Add this provider to your Pi ag
 
 The dummy `apiKey` makes this unauthenticated compatible endpoint selectable in Pi. The shown context length is the value used in one local test, not a claim about other models. Pi 1.4.0 sent only one completion token when that test declared a 4,096-token context; it sent the requested 1,024-token budget and received a complete reply at 8,192. Match the declared length to the model's actual load setting. Select it with Pi's `/model` menu or `pi --provider lmstudio --model '<ID_FROM_SERVER>'`.
 
+### Private local model check in the reviewed Git journey
+
+With a real OpenAI-compatible model loaded on a loopback server, run the integrated check from the repository root with official Pi 1.5.2 on `PATH`:
+
+```sh
+python3 scripts/smoke_pi_live_github.py 9faefeb17b55d6ec15d078eaa1325ee36bb8bab2 --live-local
+```
+
+Enter the local `/v1` base URL and exact chat model ID at the hidden terminal prompts. The command rejects non-loopback URLs and noninteractive input. It previews and installs the reviewed public Git commit in disposable fresh and existing Pi agents. In the existing agent, it temporarily selects the local model through Pi, checks a one-use reply and `/pify-health`, restores the prior `models.json`, then completes TUI startup and native removal. The result contains only status, `"gateway": "local"`, protocol, Git commit, Pi version, platform, and journey. Do not post the URL, model ID, or response text.
+
+A loopback OpenAI-compatible fixture passed this integrated path on macOS and Linux with Pi 1.5.2. That fixture proves the validation path, not a real model. An owner-run real local result in this Git journey is still needed for the MVP gate; the earlier separate LM Studio check below remains distinct evidence. The command does not use the active Pi installation or change the local model server.
+
 ## Cloud provider: Anthropic
 
 Use Pi's `/login` flow and choose Anthropic, or set `ANTHROPIC_API_KEY` before starting Pi. Keep credentials out of Pify and project files. Select an available Anthropic model with Pi's `/model` menu; Pi also accepts `--provider anthropic --model '<ID_FROM_PI>'`. Pify does not pin a live cloud model ID.

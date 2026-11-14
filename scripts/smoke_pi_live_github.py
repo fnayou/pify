@@ -2,6 +2,7 @@
 
 import argparse
 import getpass
+import ipaddress
 import json
 import os
 import re
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from smoke_pi_git_package import commands, health, setup_report
 from smoke_pi_models import run_litellm_in_agent, validate_litellm_inputs
@@ -30,8 +32,11 @@ def git(args: list[str], cwd: Path, env: dict[str, str]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("commit", help="full lowercase commit already reachable from public GitHub")
-    parser.add_argument("--live-litellm", action="store_true",
-                        help="prompt privately and test a hosted chat model in the installed Git package")
+    live = parser.add_mutually_exclusive_group()
+    live.add_argument("--live-litellm", action="store_true",
+                      help="prompt privately and test a hosted chat model in the installed Git package")
+    live.add_argument("--live-local", action="store_true",
+                      help="prompt privately and test a loopback local model in the installed Git package")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-f0-9]{40}", args.commit):
         parser.error("commit must be a full lowercase Git hash")
@@ -43,18 +48,28 @@ def main() -> None:
     pi_version = version_check.stdout.strip()
     if version_check.returncode != 0 or pi_version != "1.5.2":
         parser.error(f"Official Pi 1.5.2 is required on PATH; found {pi_version or 'unknown'}")
-    hosted = None
-    if args.live_litellm:
+    live_model = None
+    if args.live_litellm or args.live_local:
         if not sys.stdin.isatty():
-            parser.error("--live-litellm requires an interactive terminal for hidden key input")
-        base_url = getpass.getpass("LiteLLM OpenAI base URL (hidden, ending /v1): ").strip()
-        model = getpass.getpass("Hosted chat model alias (hidden): ").strip()
-        key = getpass.getpass("LiteLLM virtual key (hidden): ")
+            parser.error("live model validation requires an interactive terminal")
+        base_url = getpass.getpass(("LiteLLM" if args.live_litellm else "Local") +
+                                   " OpenAI base URL (hidden, ending /v1): ").strip()
+        model = getpass.getpass(("Hosted chat model alias" if args.live_litellm else "Local chat model ID") +
+                                " (hidden): ").strip()
+        key = getpass.getpass("LiteLLM virtual key (hidden): ") if args.live_litellm else "not-needed"
         try:
             validate_litellm_inputs(base_url, model, key)
         except ValueError as error:
             parser.error(str(error))
-        hosted = (base_url, model, key)
+        if args.live_local:
+            hostname = urlsplit(base_url).hostname
+            try:
+                loopback = ipaddress.ip_address(hostname).is_loopback
+            except ValueError:
+                loopback = hostname == "localhost"
+            if not loopback:
+                parser.error("Local model URL must use loopback")
+        live_model = (base_url, model, key)
 
     with tempfile.TemporaryDirectory(prefix="pify-live-github-smoke-") as directory:
         root = Path(directory).resolve()
@@ -150,14 +165,14 @@ def main() -> None:
         if setup_report(workspace, env, f"verify-git {args.commit} {review_code}")["status"] != "verified" or \
            health(workspace, env)["install"]["status"] != "installed":
             raise AssertionError("GitHub pin failed ordinary-session verification or health")
-        if hosted:
+        if live_model:
             try:
-                run_litellm_in_agent(agent, workspace, env, *hosted)
+                run_litellm_in_agent(agent, workspace, env, *live_model)
             except Exception as error:
-                raise AssertionError(f"Integrated hosted validation failed ({type(error).__name__}); details redacted") from None
+                raise AssertionError(f"Integrated model validation failed ({type(error).__name__}); details redacted") from None
             if (agent / "models.json").read_bytes() != user_state[2] or \
                setup_report(workspace, env, f"verify-git {args.commit} {review_code}")["status"] != "verified":
-                raise AssertionError("Hosted validation did not restore the prior model file or reviewed Git package")
+                raise AssertionError("Model validation did not restore the prior model file or reviewed Git package")
         check_tui(workspace, env)
         after_session = json.loads(settings_file.read_text())
         if after_session.get("theme") != "system":
@@ -218,8 +233,9 @@ def main() -> None:
         if fresh_checkout.exists() or json.loads(fresh_settings_file.read_text())["packages"] != [] or \
            "pify-health" in commands(fresh_workspace, fresh_env) or fresh_note.read_text() != "Fresh project note\n":
             raise AssertionError("Fresh GitHub removal left Pify installed or changed the project note")
-    if hosted:
-        print(json.dumps({"status": "passed", "gateway": "litellm", "protocol": "openai-completions",
+    if live_model:
+        print(json.dumps({"status": "passed", "gateway": "litellm" if args.live_litellm else "local",
+                          "protocol": "openai-completions",
                           "gitCommit": args.commit, "piVersion": pi_version, "platform": os.uname().sysname,
                           "journey": "fresh-and-existing-git"}, sort_keys=True))
     else:
