@@ -14,6 +14,13 @@
       "source": "https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/skills/engineering/tdd/SKILL.md",
       "sourceVersion": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
       "license": "MIT"
+    },
+    {
+      "name": "pify-handoff",
+      "path": "skills/pify-handoff",
+      "source": "https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/skills/productivity/handoff/SKILL.md",
+      "sourceVersion": "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d",
+      "license": "MIT"
     }
   ]
 }
