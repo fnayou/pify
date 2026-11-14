@@ -8,5 +8,8 @@
     "skills": ["skills/pify-debug", "skills/pify-test-first", "skills/pify-handoff"],
     "prompts": [],
     "themes": ["themes/pify.json"]
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.5.438"
   }
 }

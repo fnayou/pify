@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
+import { inspectLocal } from "../src/inspect.mjs";
 import { requestChoice } from "../src/choices.mjs";
 import { SessionJobs } from "../src/jobs.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
@@ -49,6 +50,21 @@ export default function (pi) {
     }),
     execute: async (_id, params, signal, _onUpdate, ctx) => {
       const result = await searchLocal({ cwd: ctx.cwd, ...params, signal });
+      return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    },
+  });
+
+  pi.registerTool({
+    name: "pify_inspect",
+    label: "Pify inspect",
+    description: "Inspect one named local file. Supports PDF, DOCX, XLSX, PPTX, CSV, JSON, ZIP, TAR, TAR.GZ, and SQLite; metadata mode works for any regular file. Reads at most 16 MiB and returns a bounded summary with truncation status. Does not extract archives or write databases.",
+    promptSnippet: "Bounded read-only local document, archive, and data inspection",
+    parameters: Type.Object({
+      filePath: Type.String({ description: "Path to one local file, relative to the current directory or absolute" }),
+      mode: Type.Optional(Type.Union([Type.Literal("content"), Type.Literal("metadata")])),
+    }),
+    execute: async (_id, params, _signal, _onUpdate, ctx) => {
+      const result = await inspectLocal({ cwd: ctx.cwd, ...params });
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     },
   });
