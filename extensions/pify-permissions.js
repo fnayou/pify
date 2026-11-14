@@ -6,6 +6,7 @@ import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { inspectLocal } from "../src/inspect.mjs";
+import { applyModelSync, MODEL_SYNC_TARGETS, prepareModelSync } from "../src/model-sync.mjs";
 import { requestChoice } from "../src/choices.mjs";
 import { SessionJobs } from "../src/jobs.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
@@ -166,6 +167,57 @@ export default function (pi) {
       }
       const report = await buildHealthReport({ agentDir: agentDir(), projectDir: ctx.cwd, piVersion });
       ctx.ui.notify(ctx.mode === "tui" ? formatHealthReport(report) : JSON.stringify(report), "info");
+    },
+  });
+
+  pi.registerCommand("pify-model-sync", {
+    description: "Preview or explicitly sync Pify-owned LM Studio models",
+    handler: async (args, ctx) => {
+      const action = args.trim() || "apply";
+      if (action !== "preview" && action !== "apply") {
+        ctx.ui.notify("Usage: /pify-model-sync [preview|apply]", "warning");
+        return;
+      }
+      let permission = currentPermission();
+      if (action === "apply" && ctx.mode !== "tui") {
+        const decision = authorizePifyAction({ permission, action: { kind: "model-sync", targets: MODEL_SYNC_TARGETS } });
+        if (decision.outcome !== "allowed") {
+          ctx.ui.notify(JSON.stringify(decision), "warning");
+          return;
+        }
+      }
+      try {
+        const plan = await prepareModelSync({ agentDir: agentDir(), projectDir: ctx.cwd, projectTrusted: ctx.isProjectTrusted() });
+        if (action === "preview") {
+          ctx.ui.notify(JSON.stringify(plan.report), "info");
+          return;
+        }
+        let review;
+        if (ctx.mode === "tui") {
+          const counts = plan.report;
+          const approved = await ctx.ui.confirm("Apply LM Studio model sync?",
+            plan.report.status === "recovery_required" ? "Restore the configuration from an interrupted sync?" :
+              `Add ${counts.added.count}, update ${counts.updated.count}, remove ${counts.removed.count}; ${counts.conflictCount} conflicts. Only Pify-owned entries change.`);
+          if (!approved) {
+            ctx.ui.notify("LM Studio models unchanged", "info");
+            return;
+          }
+          permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, ...MODEL_SYNC_TARGETS] });
+          if (plan.ambiguous?.length) {
+            const id = plan.ambiguous[0];
+            const selection = await ctx.ui.select(`Manual LM Studio model: ${id.slice(0, 120)}`, ["Keep manual entry", "Cancel sync"]);
+            if (selection !== "Keep manual entry") {
+              ctx.ui.notify("LM Studio models unchanged", "info");
+              return;
+            }
+            review = { id, decision: "keep" };
+          }
+        }
+        const result = await applyModelSync(plan, { permission, review });
+        ctx.ui.notify(JSON.stringify(result), result.status === "clarification_required" ? "warning" : "info");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ status: "conflict", reason: error.message }), "warning");
+      }
     },
   });
 

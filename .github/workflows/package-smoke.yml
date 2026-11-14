@@ -32,6 +32,8 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Exercise Pify package in isolated agent and workspace
         run: python3 scripts/smoke_pi_package.py
+      - name: Verify explicit LM Studio sync through Pi RPC
+        run: python3 scripts/smoke_pi_model_sync.py
       - name: Exercise pinned Git package in isolated fresh and existing agents
         run: python3 scripts/smoke_pi_git_package.py
       - name: Exercise synthetic Git version change and partial-failure recovery

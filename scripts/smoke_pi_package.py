@@ -483,6 +483,15 @@ def main() -> None:
         if len(command_responses) != 1:
             raise AssertionError(f"Pi did not return commands: {rpc}")
         commands = {item["name"]: item for item in command_responses[0]["data"]["commands"]}
+        if "pify-model-sync" not in commands:
+            raise AssertionError("Pify model sync command did not load")
+        before_model_sync = (snapshot(agent), snapshot(workspace))
+        sync_records = run_command_rpc(workspace, env, "/pify-model-sync apply", "model-sync-no-scope")
+        sync_notices = [item for item in sync_records if item.get("type") == "extension_ui_request" and item.get("method") == "notify"]
+        if len(sync_notices) != 1 or json.loads(sync_notices[0]["message"]).get("outcome") != "clarification_required":
+            raise AssertionError(f"Headless model sync did not require exact scope: {sync_records}")
+        if (snapshot(agent), snapshot(workspace)) != before_model_sync:
+            raise AssertionError("Unscoped headless model sync changed the isolated fixture")
         test_first = commands.get("skill:pify-test-first")
         if test_first is None or test_first["source"] != "skill" or test_first["sourceInfo"]["origin"] != "package":
             raise AssertionError(f"Pify skill did not load from its package: {test_first}")
@@ -548,7 +557,7 @@ def main() -> None:
         if len(command_responses) != 1:
             raise AssertionError(f"Pi did not return commands after removal: {after_remove}")
         command_names = {item["name"] for item in command_responses[0]["data"]["commands"]}
-        if "pify-health" in command_names or "skill:pify-test-first" in command_names or "skill:pify-handoff" in command_names:
+        if "pify-health" in command_names or "pify-model-sync" in command_names or "skill:pify-test-first" in command_names or "skill:pify-handoff" in command_names:
             raise AssertionError(f"Pify commands remained after removal: {sorted(command_names)}")
         if "skill:pify-debug" not in command_names:
             raise AssertionError("Pi package removal hid the existing user skill")
