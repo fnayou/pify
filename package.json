@@ -5,7 +5,7 @@
   "description": "Bootstrap package for the official Pi coding agent",
   "pi": {
     "extensions": ["extensions/pify-permissions.js"],
-    "skills": ["skills/pify-debug", "skills/pify-test-first"],
+    "skills": ["skills/pify-debug", "skills/pify-test-first", "skills/pify-handoff"],
     "prompts": [],
     "themes": ["themes/pify.json"]
   }

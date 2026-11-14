@@ -359,7 +359,7 @@ def main() -> None:
         if preview["firstInteractiveTheme"]["action"] != "select_pify" or preview["source"]["path"] != str(PACKAGE_ROOT):
             raise AssertionError(f"Unexpected setup source or theme: {preview}")
         if any(len(preview["source"][field]) != 64 for field in ("declaredResourceDigest", "runtimeDigest", "reviewCode")) or {item["relativePath"] for item in preview["package"]["resources"]} != {
-            "extensions/pify-permissions.js", "skills/pify-debug", "skills/pify-test-first", "themes/pify.json"
+            "extensions/pify-permissions.js", "skills/pify-debug", "skills/pify-test-first", "skills/pify-handoff", "themes/pify.json"
         }:
             raise AssertionError(f"Setup preview omitted declared resources: {preview}")
         collisions = {item["relativePath"]: item["collision"]["status"] for item in preview["package"]["resources"]}
@@ -486,6 +486,9 @@ def main() -> None:
         test_first = commands.get("skill:pify-test-first")
         if test_first is None or test_first["source"] != "skill" or test_first["sourceInfo"]["origin"] != "package":
             raise AssertionError(f"Pify skill did not load from its package: {test_first}")
+        handoff = commands.get("skill:pify-handoff")
+        if handoff is None or handoff["source"] != "skill" or handoff["sourceInfo"]["origin"] != "package":
+            raise AssertionError(f"Pify handoff skill did not load from its package: {handoff}")
         debug = commands.get("skill:pify-debug")
         if debug is None or Path(debug["sourceInfo"]["path"]) != user_skill:
             raise AssertionError(f"Existing user skill lost collision precedence: {debug}")
@@ -500,7 +503,7 @@ def main() -> None:
         if report["compatibility"]["status"] != "verified" or report["install"]["status"] != "installed" or report["install"]["sourceKind"] != "local" or report["inventory"]["managed"]:
             raise AssertionError(f"Unexpected Pify health report: {report}")
         bundled = {item["name"]: item for item in report["bundledSkills"]}
-        if set(bundled) != {"pify-debug", "pify-test-first"} or any(
+        if set(bundled) != {"pify-debug", "pify-test-first", "pify-handoff"} or any(
             item["sourceVersion"] != "4ae2317ddb22b046e26455e4f9c9b3aaaf62212d" or item["license"] != "MIT"
             or not item["source"].startswith("https://github.com/mattpocock/skills/blob/4ae2317ddb22b046e26455e4f9c9b3aaaf62212d/")
             for item in bundled.values()
@@ -545,7 +548,7 @@ def main() -> None:
         if len(command_responses) != 1:
             raise AssertionError(f"Pi did not return commands after removal: {after_remove}")
         command_names = {item["name"] for item in command_responses[0]["data"]["commands"]}
-        if "pify-health" in command_names or "skill:pify-test-first" in command_names:
+        if "pify-health" in command_names or "skill:pify-test-first" in command_names or "skill:pify-handoff" in command_names:
             raise AssertionError(f"Pify commands remained after removal: {sorted(command_names)}")
         if "skill:pify-debug" not in command_names:
             raise AssertionError("Pi package removal hid the existing user skill")
