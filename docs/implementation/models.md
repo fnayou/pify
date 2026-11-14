@@ -30,6 +30,8 @@ Choose an actual `data[].id` from that response. Add this provider to your Pi ag
 
 The dummy `apiKey` makes this unauthenticated compatible endpoint selectable in Pi. The shown context length is the value used in one local test, not a claim about other models. Pi 1.4.0 sent only one completion token when that test declared a 4,096-token context; it sent the requested 1,024-token budget and received a complete reply at 8,192. Match the declared length to the model's actual load setting. Select it with Pi's `/model` menu or `pi --provider lmstudio --model '<ID_FROM_SERVER>'`.
 
+The private package also has an [explicit, sidecar-owned LM Studio sync](model-sync.md). It is never automatic and has only mock-server validation so far.
+
 ### Private local model check in the reviewed Git journey
 
 With a real OpenAI-compatible model loaded on a loopback server, run the integrated check from the repository root with official Pi 1.5.2 on `PATH`:
@@ -93,6 +95,6 @@ Enter the HTTPS LiteLLM `/v1` URL, model alias, and virtual key only at the hidd
 
 ## Availability and evidence
 
-Stopping LM Studio makes that local endpoint unavailable. It does not block Pi's cloud model selection or Pify's `/pify-health` command. The CI fixture stops its local endpoint, then completes an Anthropic-protocol prompt and a health check. The same smoke runs on macOS and Linux with the exact CI-pinned Pi version. A separate macOS test used a real LM Studio server and a locally loaded model at an 8,192-token context; Pi returned `READY`. Pify's package does not download models or edit `models.json`.
+Stopping LM Studio makes that local endpoint unavailable. It does not block Pi's cloud model selection or Pify's `/pify-health` command. The CI fixture stops its local endpoint, then completes an Anthropic-protocol prompt and a health check. The same smoke runs on macOS and Linux with the exact CI-pinned Pi version. A separate macOS test used a real LM Studio server and a locally loaded model at an 8,192-token context; Pi returned `READY`. Pify's package does not download models. Only the explicit, confirmed sync can edit Pify-owned entries in `models.json`.
 
 Sources: [Pi model selection and compatible endpoints](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/models.md), [Pi model configuration](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/models-configuration.md), [Pi provider authentication](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/providers.md), [LM Studio OpenAI-compatible endpoints](https://lmstudio.ai/docs/developer/openai-compat), [LM Studio model listing](https://lmstudio.ai/docs/developer/openai-compat/models), [LiteLLM gateway quickstart](https://docs.litellm.ai/docs/proxy/docker_quick_start).
