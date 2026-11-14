@@ -28,6 +28,8 @@ jobs:
         run: |
           npm install --global --prefix "$RUNNER_TEMP/pi-runtime" --ignore-scripts @earendil-works/pi-coding-agent@1.5.2
           echo "$RUNNER_TEMP/pi-runtime/bin" >> "$GITHUB_PATH"
+      - name: Install Pify runtime dependencies
+        run: npm ci --ignore-scripts
       - name: Exercise Pify package in isolated agent and workspace
         run: python3 scripts/smoke_pi_package.py
       - name: Exercise pinned Git package in isolated fresh and existing agents
