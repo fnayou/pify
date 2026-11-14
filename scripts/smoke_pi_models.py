@@ -33,7 +33,7 @@ class ModelHandler(BaseHTTPRequestHandler):
             assert body["model"] == expected_model
             assert body["stream"] is True
             if server.kind == "litellm":
-                assert self.headers.get("Authorization") == "Bearer fixture-key"
+                assert self.headers.get("Authorization") == f"Bearer {getattr(server, 'expected_key', 'fixture-key')}"
                 reply = re.search(r"PIFY_CLOUD_READY_[0-9a-f]+", json.dumps(body["messages"][-1]["content"]))
                 assert reply is not None
                 reply_text = reply.group()
