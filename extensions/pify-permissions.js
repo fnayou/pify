@@ -11,7 +11,7 @@ import { requestChoice } from "../src/choices.mjs";
 import { SessionJobs } from "../src/jobs.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
-import { enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
+import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
 import {
   formatGitSetupPreview, formatGitSetupVerification, formatSetupPreview, formatSetupVerification,
@@ -268,21 +268,23 @@ export default function (pi) {
   });
 
   pi.registerCommand("pify-workflow", {
-    description: "Inspect or enable Pify's development workflow for this project",
+    description: "Inspect, enable, or disable Pify's development workflow for this project",
     handler: async (args, ctx) => {
       const action = args.trim();
       if (!action || action === "status") {
-        const status = await inspectProjectWorkflow({ projectDir: ctx.cwd });
+        const status = await inspectProjectWorkflow({ projectDir: ctx.cwd, agentDir: agentDir() });
         ctx.ui.notify(ctx.mode === "tui" ? `Project workflow: ${status.status}` : JSON.stringify(status), "info");
         return;
       }
-      if (action !== "enable") {
-        ctx.ui.notify("Usage: /pify-workflow [status|enable]", "warning");
+      if (action !== "enable" && action !== "disable") {
+        ctx.ui.notify("Usage: /pify-workflow [status|enable|disable]", "warning");
         return;
       }
       let permission = currentPermission();
       if (ctx.mode === "tui") {
-        const approved = await ctx.ui.confirm("Enable project workflow?", `Create .pi/${WORKFLOW_RESOURCE} in ${ctx.cwd}?`);
+        const approved = await ctx.ui.confirm(`${action === "enable" ? "Enable" : "Disable"} project workflow?`,
+          action === "enable" ? `Create or restore .pi/${WORKFLOW_RESOURCE} in ${ctx.cwd}?` :
+            `Rename .pi/${WORKFLOW_RESOURCE} to SKILL.pify-disabled.md in ${ctx.cwd}; keep every project file?`);
         if (!approved) {
           ctx.ui.notify("Project workflow unchanged", "info");
           return;
@@ -290,8 +292,10 @@ export default function (pi) {
         permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, WORKFLOW_RESOURCE] });
       }
       try {
-        const result = await enableProjectWorkflow({ projectDir: ctx.cwd, permission });
-        const message = result.status === "enabled" ? { ...result, next: "Run /reload and grant project trust" } : result;
+        const result = action === "enable"
+          ? await enableProjectWorkflow({ projectDir: ctx.cwd, agentDir: agentDir(), permission })
+          : await disableProjectWorkflow({ projectDir: ctx.cwd, agentDir: agentDir(), permission });
+        const message = ["enabled", "disabled"].includes(result.status) ? { ...result, next: "Run /reload to refresh project skills" } : result;
         ctx.ui.notify(ctx.mode === "tui" ? `Project workflow: ${message.status}${message.next ? `. ${message.next}.` : ""}` : JSON.stringify(message), "info");
       } catch (error) {
         ctx.ui.notify(ctx.mode === "tui" ? `Project workflow unchanged: ${error.message}` : JSON.stringify({ status: "conflict", reason: error.message }), "warning");
