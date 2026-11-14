@@ -40,7 +40,7 @@ jobs:
         run: python3 scripts/smoke_pi_git_version_change.py
       - name: Verify local and Anthropic model paths without external services
         run: python3 scripts/smoke_pi_models.py
-      - name: Verify per-project workflow opt-in and trust isolation
+      - name: Verify per-project workflow opt-in, opt-out, and trust isolation
         run: python3 scripts/smoke_pi_workflow.py
       - name: Verify fresh and personal theme behavior
         run: python3 scripts/smoke_pi_theme.py

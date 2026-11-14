@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { listOwnedFiles } from "./managed-state.mjs";
-import { inspectProjectWorkflow } from "./project-workflow.mjs";
+import { inspectProjectWorkflow, listProjectWorkflows } from "./project-workflow.mjs";
 import { inspectThemeSelection } from "./theme-selection.mjs";
 
 const PACKAGE_ROOT = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -132,11 +132,16 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
   let projectWorkflow = { status: "not_checked" };
   if (projectDir !== null) {
     try {
-      projectWorkflow = await inspectProjectWorkflow({ projectDir });
+      projectWorkflow = await inspectProjectWorkflow({ projectDir, agentDir });
     } catch (error) {
       warnings.push(`Project workflow could not be read: ${error.message}`);
       projectWorkflow = { status: "unavailable" };
     }
+  }
+  let projectWorkflows = [];
+  try { projectWorkflows = await listProjectWorkflows({ agentDir }); }
+  catch (error) {
+    warnings.push(`Project workflow index could not be read: ${error.message}`);
   }
   return {
     schema: "pify.health/v1",
@@ -150,6 +155,7 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
     bundledSkills: await bundledSkills(install, warnings, packageRoot),
     themeSelection,
     projectWorkflow,
+    projectWorkflows,
     inventory: {
       status: inventoryStatus,
       managed: owned.filter((item) => item.action !== "conflict").map(({ relativePath, digest, version: resourceVersion }) => ({ relativePath, digest, version: resourceVersion })),
@@ -171,6 +177,7 @@ export function formatHealthReport(report) {
     `Project workflow: ${report.projectWorkflow.status}`,
     `Managed resources: ${report.inventory.managed.length}`,
   ];
+  for (const item of report.projectWorkflows) lines.push(`Workflow project: ${item.status} (${item.path})`);
   for (const item of report.bundledSkills) lines.push(`- ${item.name}: ${item.source} @ ${item.sourceVersion} (${item.license})`);
   for (const item of report.inventory.managed) lines.push(`- ${item.relativePath} (${item.version ?? "version unknown"})`);
   for (const item of report.inventory.conflicts) lines.push(`Conflict: ${item.relativePath} (${item.reason})`);

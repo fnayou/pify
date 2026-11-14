@@ -1,4 +1,4 @@
-"""Verify one-project workflow opt-in through official Pi 1.5.2."""
+"""Verify reversible per-project workflow state through official Pi 1.5.2."""
 
 import json
 import os
@@ -128,6 +128,32 @@ def main() -> None:
             report = notice(rpc(workspace, env, {"id": f"health-{expected}", "type": "prompt", "message": "/pify-health"}))
             if report["projectWorkflow"]["status"] != expected:
                 raise AssertionError(f"Wrong project workflow health state: {report['projectWorkflow']}")
+        second_enabled = notice(rpc(second, env, {"id": "second-enable", "type": "prompt", "message": "/pify-workflow enable"}, scope=RESOURCE))
+        if second_enabled.get("status") != "enabled":
+            raise AssertionError(f"Second project opt-in failed: {second_enabled}")
+        before = skill_file.read_bytes()
+        second_skill = second / ".pi" / RESOURCE
+        second_before = second_skill.read_bytes()
+        both = notice(rpc(first, env, {"id": "health-both", "type": "prompt", "message": "/pify-health"}))
+        if both["projectWorkflows"] != [{"path": str(first), "status": "enabled"}, {"path": str(second), "status": "enabled"}]:
+            raise AssertionError(f"Health did not list two opted-in projects: {both['projectWorkflows']}")
+        denied_disable = notice(rpc(first, env, {"id": "denied-disable", "type": "prompt", "message": "/pify-workflow disable"}))
+        if denied_disable.get("outcome") != "clarification_required" or skill_file.read_bytes() != before:
+            raise AssertionError(f"Unscoped opt-out changed project: {denied_disable}")
+        disabled = notice(rpc(first, env, {"id": "disable", "type": "prompt", "message": "/pify-workflow disable"}, scope=RESOURCE))
+        preserved = skill_file.parent / "SKILL.pify-disabled.md"
+        if disabled.get("status") != "disabled" or skill_file.exists() or preserved.read_bytes() != before:
+            raise AssertionError(f"Opt-out did not preserve the workflow file: {disabled}")
+        if "skill:pify-development-workflow" in commands(first, env, trust=True):
+            raise AssertionError("Opted-out project still advertised the workflow skill")
+        if "skill:pify-development-workflow" not in commands(second, env, trust=True) or second_skill.read_bytes() != second_before:
+            raise AssertionError("Opt-out changed the other project's workflow")
+        after = notice(rpc(first, env, {"id": "health-after", "type": "prompt", "message": "/pify-health"}))
+        if after["projectWorkflows"] != [{"path": str(first), "status": "disabled"}, {"path": str(second), "status": "enabled"}]:
+            raise AssertionError(f"Health did not isolate the opt-out: {after['projectWorkflows']}")
+        restored = notice(rpc(first, env, {"id": "restore", "type": "prompt", "message": "/pify-workflow enable"}, scope=RESOURCE))
+        if restored.get("status") != "enabled" or skill_file.read_bytes() != before:
+            raise AssertionError(f"Workflow could not be restored: {restored}")
         if (second / "AGENTS.md").read_text() != "second project instructions\n":
             raise AssertionError("Second project instructions changed")
         print(f"Pify project workflow smoke passed on {os.uname().sysname}")
