@@ -17,6 +17,8 @@ import { authorizePifyAction, clarificationResult, modeLabel, permissionContext 
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
 import { createSkillDraft, previewSkillDraft, skillDraftTarget } from "../src/skill-draft.mjs";
+import { createSubagentDashboard } from "../src/subagent-dashboard.mjs";
+import { SUBAGENT_STATUS_EVENT } from "../src/subagent-status.mjs";
 import { SessionSubagents, SUBAGENT_START_RESOURCE } from "../src/subagents.mjs";
 import {
   formatGitSetupPreview, formatGitSetupVerification, formatSetupPreview, formatSetupVerification,
@@ -42,7 +44,13 @@ export default function (pi) {
   let jobs = null;
   const sessionJobs = () => jobs ??= new SessionJobs();
   let subagents = null;
-  const sessionSubagents = () => subagents ??= new SessionSubagents();
+  const sessionSubagents = () => {
+    if (!subagents) {
+      subagents = new SessionSubagents({ onStatus: (snapshot) => pi.events.emit(SUBAGENT_STATUS_EVENT, snapshot) });
+      pi.events.emit(SUBAGENT_STATUS_EVENT, subagents.status());
+    }
+    return subagents;
+  };
 
   pi.registerTool({
     name: "pify_search",
@@ -154,18 +162,20 @@ export default function (pi) {
   });
 
   if (process.env.PIFY_SUBAGENT_CHILD !== "1") pi.registerCommand("pify-delegate", {
-    description: "Start, list, inspect, or cancel session-bound Pi subagents",
+    description: "Start, monitor, inspect, or cancel session-bound Pi subagents",
     handler: async (args, ctx) => {
       try {
         let command = args.trim();
         if (!command && ctx.mode === "tui") {
-          const selected = await ctx.ui.select("Pify subagents", ["Start task", "List tasks", "Inspect task", "Cancel task"]);
+          const selected = await ctx.ui.select("Pify subagents", ["Start task", "Dashboard", "Status feed", "List tasks", "Inspect task", "Cancel task"]);
           if (!selected) return;
           if (selected === "Start task") {
             const task = await ctx.ui.input("Task for the subagent", "");
             if (!task) return;
             command = `start ${task.trim()}`;
-          } else if (selected === "List tasks") command = "list";
+          } else if (selected === "Dashboard") command = "dashboard";
+          else if (selected === "Status feed") command = "status";
+          else if (selected === "List tasks") command = "list";
           else {
             const id = await ctx.ui.input("Subagent ID", "");
             if (!id) return;
@@ -195,10 +205,20 @@ export default function (pi) {
           result = sessionSubagents().start({ task, cwd: ctx.cwd, provider: ctx.model.provider, model: ctx.model.id,
             thinkingLevel: ctx.thinkingLevel, parentPermission: parent, startPermission, workerScope,
             parentTools: pi.getActiveTools(), trusted: ctx.isProjectTrusted() });
-        } else if (command === "list") result = sessionSubagents().list();
+        } else if (command === "dashboard" && ctx.mode === "tui") {
+          let dashboard;
+          try {
+            await ctx.ui.custom((tui, theme, keybindings, done) => {
+              dashboard = createSubagentDashboard({ manager: sessionSubagents(), tui, theme, keybindings, done });
+              return dashboard;
+            });
+          } finally { dashboard?.dispose(); }
+          return;
+        } else if (command === "dashboard" || command === "status") result = sessionSubagents().status();
+        else if (command === "list") result = sessionSubagents().list();
         else if (command.startsWith("inspect ")) result = sessionSubagents().inspect(command.slice("inspect ".length).trim());
         else if (command.startsWith("cancel ")) result = await sessionSubagents().cancel(command.slice("cancel ".length).trim());
-        else throw new Error("Usage: /pify-delegate <start task [| narrower scopes]|list|inspect id|cancel id>");
+        else throw new Error("Usage: /pify-delegate <start task [| narrower scopes]|dashboard|status|list|inspect id|cancel id>");
         ctx.ui.notify(JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");

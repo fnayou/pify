@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { StringDecoder } from "node:string_decoder";
 
 import { authorizePifyAction, deriveWorkerPermission, permissionContext } from "./permissions.mjs";
+import { subagentStatus } from "./subagent-status.mjs";
 
 export const SUBAGENT_START_RESOURCE = "agents/task-start";
 const DEFAULT_EXTENSION = fileURLToPath(new URL("../extensions/pify-permissions.js", import.meta.url));
@@ -48,7 +49,7 @@ function publicJob(job, detailed = false) {
 /** Session-bound Pi workers with bounded per-provider queues and cancellation. */
 export class SessionSubagents {
   constructor({ command = "pi", spawnImpl = spawn, extensionPath = DEFAULT_EXTENSION,
-    maxPerProvider = 2, maxTotal = 4, maxRunMs = 5 * 60 * 1000 } = {}) {
+    maxPerProvider = 2, maxTotal = 4, maxRunMs = 5 * 60 * 1000, onStatus = null } = {}) {
     if (![maxPerProvider, maxTotal, maxRunMs].every((value) => Number.isInteger(value) && value > 0)) {
       throw new Error("Subagent limits must be positive integers");
     }
@@ -60,6 +61,9 @@ export class SessionSubagents {
     this.maxRunMs = maxRunMs;
     this.jobs = new Map();
     this.closed = false;
+    this.sequence = 0;
+    this.listeners = new Set();
+    this.onStatus = onStatus;
     this.onProcessExit = () => {
       for (const job of this.jobs.values()) if (active(job)) killGroup(job, "SIGKILL");
     };
@@ -67,6 +71,24 @@ export class SessionSubagents {
   }
 
   list() { return [...this.jobs.values()].map((job) => publicJob(job)); }
+
+  status() { return subagentStatus(this.jobs.values(), { sequence: this.sequence, closed: this.closed }); }
+
+  subscribe(listener) {
+    if (typeof listener !== "function") throw new Error("Status listener must be a function");
+    this.listeners.add(listener);
+    try { listener(this.status()); }
+    catch (error) { this.listeners.delete(listener); throw error; }
+    return () => this.listeners.delete(listener);
+  }
+
+  publish() {
+    this.sequence += 1;
+    const snapshot = this.status();
+    for (const listener of [this.onStatus, ...this.listeners]) {
+      try { listener?.(snapshot); } catch { /* A status consumer cannot stop workers. */ }
+    }
+  }
 
   inspect(id) {
     const job = this.jobs.get(id);
@@ -109,10 +131,12 @@ export class SessionSubagents {
       state: "queued", queuedAt: new Date().toISOString(), startedAt: null, endedAt: null,
       pid: null, child: null, exitCode: null, signal: null, message: null,
       output: "", stderr: "", settled: false, protocolError: false,
+      activity: "Queued", activityAt: new Date().toISOString(),
       cancelReason: null, done: null, timer: null,
     };
     this.jobs.set(id, job);
     this.pump();
+    this.publish();
     return publicJob(job);
   }
 
@@ -130,6 +154,8 @@ export class SessionSubagents {
   launch(job) {
     job.state = "starting";
     job.startedAt = new Date().toISOString();
+    job.activity = "Starting Pi worker";
+    job.activityAt = job.startedAt;
     const args = ["--mode", "json", "--print", "--no-session", "--offline", "--no-mcp",
       "--no-extensions", "--extension", this.extensionPath, "--no-skills", "--no-prompt-templates",
       job.trusted ? "--approve" : "--no-approve", "--provider", job.provider, "--model", job.model,
@@ -152,6 +178,8 @@ export class SessionSubagents {
     job.child = child;
     job.pid = child.pid ?? null;
     job.state = "running";
+    job.activity = "Running";
+    job.activityAt = new Date().toISOString();
     const decoder = new StringDecoder("utf8");
     let buffer = "";
     child.stdout?.on("data", (chunk) => {
@@ -186,6 +214,16 @@ export class SessionSubagents {
     let event;
     try { event = JSON.parse(line); }
     catch { job.protocolError = true; return; }
+    if (event.type === "tool_execution_start" && typeof event.toolName === "string") {
+      job.activity = `Using ${event.toolName}`;
+      job.activityAt = new Date().toISOString();
+      this.publish();
+    }
+    if (event.type === "tool_execution_end" && typeof event.toolName === "string") {
+      job.activity = `Finished ${event.toolName}`;
+      job.activityAt = new Date().toISOString();
+      this.publish();
+    }
     if (event.type === "agent_settled") job.settled = !event.aborted;
     if (event.type === "message_end" && event.message?.role === "assistant") {
       const content = event.message.content;
@@ -194,6 +232,9 @@ export class SessionSubagents {
         if (text) job.output = bounded(text, MAX_RESULT_CHARS);
       }
       if (event.message.stopReason === "error") job.message = "Subagent model returned an error";
+      job.activity = job.message ?? "Response available";
+      job.activityAt = new Date().toISOString();
+      this.publish();
     }
   }
 
@@ -211,8 +252,11 @@ export class SessionSubagents {
       job.message = error ?? job.message ?? (job.protocolError ? "Invalid subagent event stream" :
         code !== 0 ? `Subagent exited with code ${code}` : "Subagent ended without settling");
     } else job.state = "succeeded";
+    job.activity = job.message ?? (job.state === "succeeded" ? "Completed" : job.state);
+    job.activityAt = job.endedAt;
     job.resolveDone?.();
     this.pump();
+    this.publish();
   }
 
   async cancel(id, reason = "user") {
@@ -223,12 +267,18 @@ export class SessionSubagents {
       job.cancelReason = reason;
       job.endedAt = new Date().toISOString();
       job.message = "Queued subagent cancelled";
+      job.activity = job.message;
+      job.activityAt = job.endedAt;
       this.pump();
+      this.publish();
       return { ...publicJob(job), outcome: "cancelled_queued" };
     }
     if (!active(job)) return { ...publicJob(job), outcome: "already_finished" };
     job.cancelReason = reason;
     job.state = "cancelling";
+    job.activity = reason === "timeout" ? "Time limit reached; stopping" : "Cancellation requested";
+    job.activityAt = new Date().toISOString();
+    this.publish();
     killGroup(job, "SIGTERM");
     await Promise.race([job.done ?? wait(STOP_GRACE_MS), wait(STOP_GRACE_MS)]);
     if (active(job) && groupAlive(job)) killGroup(job, "SIGKILL");
@@ -245,8 +295,11 @@ export class SessionSubagents {
         job.state = "cancelled";
         job.endedAt = new Date().toISOString();
         job.message = "Session ended before subagent started";
+        job.activity = job.message;
+        job.activityAt = job.endedAt;
       }
     }
+    this.publish();
     await Promise.all([...this.jobs.values()].filter(active).map((job) => this.cancel(job.id)));
     if (![...this.jobs.values()].some(active)) process.off("exit", this.onProcessExit);
   }

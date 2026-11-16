@@ -50,6 +50,8 @@ function request(root, task, provider = "fixture-a") {
 
 test("workers inherit narrower scope and tools; unscoped or wider starts fail", async (t) => {
   const { root, manager, launches } = await fixture(t);
+  const published = [];
+  const unsubscribe = manager.subscribe((status) => published.push(status));
   const denied = manager.start({ ...request(root, "denied"), parentPermission: permissionContext() });
   assert.equal(denied.outcome, "clarification_required");
   assert.equal(launches.length, 0);
@@ -69,6 +71,11 @@ test("workers inherit narrower scope and tools; unscoped or wider starts fail", 
   assert.ok(invocation.args.includes("--no-mcp") && invocation.args.includes("--no-extensions"));
   await until(() => manager.inspect(started.id).state === "succeeded");
   assert.match(manager.inspect(started.id).output, /quick/);
+  assert.equal(published[0].counts.total, 0);
+  assert.ok(published.some((status) => status.jobs[0]?.state === "running"));
+  assert.equal(published.at(-1).jobs[0].state, "succeeded");
+  assert.ok(published.at(-1).sequence > published[0].sequence);
+  unsubscribe();
 });
 
 test("per-provider queue, cancellation, and a stuck worker never block the parent", async (t) => {

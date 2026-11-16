@@ -1,9 +1,15 @@
 """Verify Pi subagents queue, cancel, and leave the parent RPC responsive."""
 
 import json
+import fcntl
 import os
+import pty
+import select
 import shutil
+import struct
+import subprocess
 import tempfile
+import termios
 import time
 from pathlib import Path
 
@@ -30,6 +36,36 @@ def wait_state(session: RpcSession, job_id: str, state: str, timeout: float = 5.
             return result
         time.sleep(0.05)
     raise AssertionError(f"Subagent {job_id} never reached {state}: {result}")
+
+
+def check_dashboard_tui(workspace: Path, env: dict[str, str]) -> None:
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+    process = subprocess.Popen(
+        ["pi", "--offline", "--no-mcp", "--no-session", "--approve"],
+        cwd=workspace, env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
+    )
+    os.close(slave)
+    output = bytearray()
+    try:
+        for expected, seconds in ((b"Pify: Balanced", 10), (b"No subagents in this session", 5)):
+            if expected == b"No subagents in this session":
+                os.write(master, b"/pify-delegate dashboard\r")
+            deadline = time.monotonic() + seconds
+            while expected not in output and time.monotonic() < deadline:
+                ready, _, _ = select.select([master], [], [], 0.2)
+                if ready:
+                    output.extend(os.read(master, 65536))
+            if expected not in output:
+                raise AssertionError(f"Pi TUI did not show {expected!r}: {output[-1000:]!r}")
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        os.close(master)
 
 
 def main() -> None:
@@ -66,6 +102,10 @@ if 'PIFY_STUCK_' in task:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     while True:
         time.sleep(1)
+if 'PIFY_FAIL_' in task:
+    print(json.dumps({'type':'message_end','message':{'role':'assistant','content':[],'stopReason':'error'}}), flush=True)
+    print(json.dumps({'type':'agent_settled','aborted':False}), flush=True)
+    sys.exit(0)
 time.sleep(1)
 print(json.dumps({'type':'message_end','message':{'role':'assistant','content':[{'type':'text','text':'fixture worker done'}],'stopReason':'stop'}}), flush=True)
 print(json.dumps({'type':'agent_settled','aborted':False}), flush=True)
@@ -108,6 +148,17 @@ print(json.dumps({'type':'agent_settled','aborted':False}), flush=True)
                 wait_state(session, other["id"], "succeeded")
                 prompt(session, "cancel-second", f"cancel {second['id']}")
 
+                failed = prompt(session, "failed", "start PIFY_FAIL_worker | files/a")
+                wait_state(session, failed["id"], "failed")
+                status = prompt(session, "status", "status")
+                if status.get("schema") != "pify.subagents/status/v1":
+                    raise AssertionError(f"Missing versioned status feed: {status}")
+                counts = status.get("counts", {})
+                if not all(counts.get(key, 0) >= 1 for key in ("succeeded", "failed", "cancelled")):
+                    raise AssertionError(f"Mixed worker outcomes missing: {status}")
+                if prompt(session, "dashboard-headless", "dashboard").get("schema") != status["schema"]:
+                    raise AssertionError("Headless dashboard did not return status data")
+
                 session.send({"id": "back-to-a", "type": "set_model", "provider": "fixture-a", "modelId": "fixture-local"})
                 real = prompt(session, "real", "start PIFY_REAL_answer READY_LOCAL | files/a")
                 finished = wait_state(session, real["id"], "succeeded", timeout=10)
@@ -116,6 +167,7 @@ print(json.dumps({'type':'agent_settled','aborted':False}), flush=True)
                 print(f"Pify subagent smoke passed on {os.uname().sysname}")
             finally:
                 session.close()
+            check_dashboard_tui(workspace, env)
     finally:
         server.shutdown()
         server.server_close()
