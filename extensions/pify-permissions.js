@@ -17,6 +17,7 @@ import { authorizePifyAction, clarificationResult, modeLabel, permissionContext 
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
 import { createSkillDraft, previewSkillDraft, skillDraftTarget } from "../src/skill-draft.mjs";
+import { SessionSubagents, SUBAGENT_START_RESOURCE } from "../src/subagents.mjs";
 import {
   formatGitSetupPreview, formatGitSetupVerification, formatSetupPreview, formatSetupVerification,
   previewGitSetup, previewGitUpdateSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup,
@@ -40,6 +41,8 @@ export default function (pi) {
   const themePermission = (permission) => permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, THEME_SETTING_RESOURCE] });
   let jobs = null;
   const sessionJobs = () => jobs ??= new SessionJobs();
+  let subagents = null;
+  const sessionSubagents = () => subagents ??= new SessionSubagents();
 
   pi.registerTool({
     name: "pify_search",
@@ -88,6 +91,10 @@ export default function (pi) {
     }
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    if (subagents) {
+      await subagents.shutdown();
+      subagents = null;
+    }
     if (jobs) {
       await jobs.shutdown();
       jobs = null;
@@ -140,6 +147,59 @@ export default function (pi) {
         else if (action === "stop") result = await manager.stop(id);
         else throw new Error("Usage: /pify-job <start command|list|inspect id|log id|stop id>");
         ctx.ui.notify(JSON.stringify(result), "info");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
+      }
+    },
+  });
+
+  if (process.env.PIFY_SUBAGENT_CHILD !== "1") pi.registerCommand("pify-delegate", {
+    description: "Start, list, inspect, or cancel session-bound Pi subagents",
+    handler: async (args, ctx) => {
+      try {
+        let command = args.trim();
+        if (!command && ctx.mode === "tui") {
+          const selected = await ctx.ui.select("Pify subagents", ["Start task", "List tasks", "Inspect task", "Cancel task"]);
+          if (!selected) return;
+          if (selected === "Start task") {
+            const task = await ctx.ui.input("Task for the subagent", "");
+            if (!task) return;
+            command = `start ${task.trim()}`;
+          } else if (selected === "List tasks") command = "list";
+          else {
+            const id = await ctx.ui.input("Subagent ID", "");
+            if (!id) return;
+            command = `${selected === "Inspect task" ? "inspect" : "cancel"} ${id.trim()}`;
+          }
+        }
+        let result;
+        if (command.startsWith("start ")) {
+          const payload = command.slice("start ".length);
+          const separator = payload.indexOf("|");
+          const task = (separator === -1 ? payload : payload.slice(0, separator)).trim();
+          const scopeText = separator === -1 ? null : payload.slice(separator + 1).trim();
+          if (!task || (scopeText !== null && scopeText.includes("|"))) throw new Error("Usage: /pify-delegate start <task> [| <comma-separated narrower scopes>]");
+          const parent = currentPermission();
+          const workerScope = scopeText === null ? undefined : scopeText ? scopeText.split(",").map((item) => item.trim()).filter(Boolean) : [];
+          if (!ctx.model) {
+            ctx.ui.notify(JSON.stringify(clarificationResult({ permission: parent, question: "Select a model before starting a subagent" })), "warning");
+            return;
+          }
+          let startPermission = parent;
+          if (ctx.mode === "tui") {
+            const approved = await ctx.ui.confirm("Start a Pi subagent?",
+              `Provider: ${ctx.model.provider}\nModel: ${ctx.model.id}\nTask: ${task}\nWorker Pify scopes: ${(workerScope ?? parent.authorizedPaths).join(", ") || "none"}`);
+            if (!approved) { ctx.ui.notify("Subagent not started", "info"); return; }
+            startPermission = permissionContext({ ...parent, authorizedPaths: [...parent.authorizedPaths, SUBAGENT_START_RESOURCE] });
+          }
+          result = sessionSubagents().start({ task, cwd: ctx.cwd, provider: ctx.model.provider, model: ctx.model.id,
+            thinkingLevel: ctx.thinkingLevel, parentPermission: parent, startPermission, workerScope,
+            parentTools: pi.getActiveTools(), trusted: ctx.isProjectTrusted() });
+        } else if (command === "list") result = sessionSubagents().list();
+        else if (command.startsWith("inspect ")) result = sessionSubagents().inspect(command.slice("inspect ".length).trim());
+        else if (command.startsWith("cancel ")) result = await sessionSubagents().cancel(command.slice("cancel ".length).trim());
+        else throw new Error("Usage: /pify-delegate <start task [| narrower scopes]|list|inspect id|cancel id>");
+        ctx.ui.notify(JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
       }

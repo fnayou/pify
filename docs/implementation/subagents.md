@@ -1,0 +1,11 @@
+# Task-scoped Pi subagents
+
+Pify remains a bootstrap project. `/pify-delegate start <task>` starts a separate, session-bound Pi process and returns its ID immediately. `/pify-delegate list`, `inspect <id>`, and `cancel <id>` keep the parent session usable while workers run. An optional `| <comma-separated scopes>` after the task narrows the worker's Pify scope; a trailing `|` gives it no Pify scope. Interactive starts ask for confirmation. Headless starts require the exact `agents/task-start` Pify scope target.
+
+Each worker inherits the parent's selected provider, model, thinking level, Pify mode, and at most its declared Pify scope. It receives only known built-in and Pify tools that are active in the parent; other extension tools and MCP servers are not loaded. Project trust follows the parent decision. A worker receives an ephemeral Pi session, so its transcript is not saved by Pi. Pify records a bounded final answer and diagnostic text in the parent session for inspection. Ending the parent session cancels its queued and running workers. Models registered only by another extension may be unavailable to the worker and then report failure.
+
+At most two workers for one provider and four workers total run in a parent session. Additional tasks queue. A worker is cancelled after five minutes. Cancellation signals its process group, escalates to a forced stop after a short grace period, and reports `cancelled`, `cancelled_queued`, or `stop_unconfirmed`. If a process cannot be confirmed stopped, Pify keeps it counted against the limit until it exits. Parent commands never wait for a worker to finish.
+
+Pify's inherited mode and exact scopes constrain Pify-mediated actions. The worker still runs under the same operating-system account as the parent, and Pi's built-in tools can use that account's file and network access. Scope is not an OS sandbox. Use a container or separate account when a task needs an actual isolation boundary. This feature does not add a dashboard or shared subagent status feed; those are separate roadmap work.
+
+Unit tests cover scope and mode narrowing, tool inheritance, per-provider queuing, cancellation, and a stuck worker. The Pi 1.5.2 RPC smoke checks parent responsiveness and an actual Pi child against a loopback model fixture on macOS and Linux.
