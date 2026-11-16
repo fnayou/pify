@@ -67,6 +67,11 @@ def main() -> None:
             expected = "denied" if mode == "safe" else "approval_required"
             if outside["outcome"] != expected:
                 raise AssertionError(f"Out-of-scope action was not blocked in {mode}: {outside}")
+            for target in ("commands/shell", "jobs/current-workspace"):
+                shell = permission_result(workspace, env, mode, target, target)
+                expected_shell = "denied" if mode == "safe" else "allowed"
+                if shell["outcome"] != expected_shell:
+                    raise AssertionError(f"Shell permission query disagreed with execution in {mode}: {shell}")
         unspecified = permission_result(workspace, env, "balanced", "skills/pify.md", "")
         if unspecified["outcome"] != "clarification_required":
             raise AssertionError(f"Missing action target did not request clarification: {unspecified}")
