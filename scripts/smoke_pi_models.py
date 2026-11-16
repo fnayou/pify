@@ -25,6 +25,7 @@ class ModelHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         server = self.server
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        server.bodies.append(body)
         request_path = urlsplit(self.path).path
         server.requests.append((request_path, body["model"]))
         if server.kind in {"local", "litellm"}:
@@ -73,6 +74,7 @@ def start_server(kind: str) -> ThreadingHTTPServer:
     server = ThreadingHTTPServer(("127.0.0.1", 0), ModelHandler)
     server.kind = kind
     server.requests = []
+    server.bodies = []
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
