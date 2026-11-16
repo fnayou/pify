@@ -11,6 +11,7 @@ import { requestChoice } from "../src/choices.mjs";
 import { SessionJobs } from "../src/jobs.mjs";
 import { approveMemoryNote, buildPreferenceSnapshot, memoryApprovalTarget, previewMemoryNote, revokeMemoryNote } from "../src/memory-approvals.mjs";
 import { connectMemoryVault, createMemoryVault, inspectMemoryVault, MEMORY_STATE_RESOURCE, memoryVaultTargets, resolveMemoryVaultPath, skipMemoryVault } from "../src/memory-vault.mjs";
+import { memorySyncTarget, previewMemoryPush, pullMemory, pushMemory } from "../src/memory-sync.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, clarificationResult, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
@@ -189,7 +190,7 @@ export default function (pi) {
   });
 
   pi.registerCommand("pify-memory", {
-    description: "Set up a memory vault and review, approve, or revoke local preferences",
+    description: "Set up, review, approve, and sync a private memory vault",
     handler: async (args, ctx) => {
       try {
         let command = args.trim();
@@ -202,9 +203,9 @@ export default function (pi) {
           return;
         }
         if (!command) {
-          const selected = await ctx.ui.select("Pify memory", ["Status", "Create new vault", "Connect existing vault", "Skip memory", "Review note", "Approve note", "Revoke note", "Snapshot"]);
+          const selected = await ctx.ui.select("Pify memory", ["Status", "Create new vault", "Connect existing vault", "Skip memory", "Review note", "Approve note", "Revoke note", "Snapshot", "Push notes", "Pull notes"]);
           if (!selected) return;
-          const action = { Status: "status", "Create new vault": "create", "Connect existing vault": "connect", "Skip memory": "skip", "Review note": "review", "Approve note": "approve", "Revoke note": "revoke", Snapshot: "snapshot" }[selected];
+          const action = { Status: "status", "Create new vault": "create", "Connect existing vault": "connect", "Skip memory": "skip", "Review note": "review", "Approve note": "approve", "Revoke note": "revoke", Snapshot: "snapshot", "Push notes": "push", "Pull notes": "pull" }[selected];
           if (["create", "connect", "review", "approve", "revoke"].includes(action)) {
             const entered = await ctx.ui.input(action === "create" || action === "connect" ? "Absolute vault path" : "Vault-relative Markdown note path",
               action === "create" ? path.join(os.homedir(), "pify-memory") : "");
@@ -220,6 +221,48 @@ export default function (pi) {
         if (command === "snapshot") {
           const { text: _text, ...snapshot } = await buildPreferenceSnapshot({ agentDir: agentDir(), projectDir: ctx.cwd });
           ctx.ui.notify(ctx.mode === "tui" ? `Memory preferences: ${snapshot.entries.length} active, ${snapshot.inactive.length} inactive (${snapshot.status})` : JSON.stringify(snapshot), "info");
+          return;
+        }
+        if (command === "push-preview" || /^push(?:\s+[a-f0-9]{64})?$/.test(command)) {
+          const plan = await previewMemoryPush({ agentDir: agentDir() });
+          if (command === "push-preview") {
+            ctx.ui.notify(ctx.mode === "tui"
+              ? `Memory push: ${plan.changes.length} note(s), ${plan.excluded.length} excluded\n${plan.changes.map((item) => `${item.action}: ${item.relativePath}`).join("\n")}\nReview code: ${plan.reviewCode}`
+              : JSON.stringify(plan), "info");
+            return;
+          }
+          let reviewCode = /^push\s+([a-f0-9]{64})$/.exec(command)?.[1];
+          let permission = currentPermission();
+          if (ctx.mode === "tui") {
+            const approved = await ctx.ui.confirm("Push memory notes to a private PR?",
+              `${plan.repo}\n${plan.changes.map((item) => `${item.action}: ${item.relativePath}`).join("\n") || "No new note changes"}\n${plan.excluded.length} other file(s) excluded. PR merge stays manual.`);
+            if (!approved) { ctx.ui.notify("Memory push cancelled", "info"); return; }
+            reviewCode ??= plan.reviewCode;
+            permission = permissionContext({ ...permission, authorizedPaths: [
+              ...permission.authorizedPaths, memorySyncTarget(plan.vaultPath, "push"),
+            ] });
+          } else if (!reviewCode) {
+            ctx.ui.notify(JSON.stringify(clarificationResult({ permission, question: "Run push-preview and supply its review code before pushing" })), "warning");
+            return;
+          }
+          const result = await pushMemory({ agentDir: agentDir(), reviewCode, permission });
+          ctx.ui.notify(JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
+          return;
+        }
+        if (command === "pull") {
+          let permission = currentPermission();
+          if (ctx.mode === "tui") {
+            const selection = await inspectMemoryVault({ agentDir: agentDir() });
+            if (selection.status !== "available") throw new Error(`Memory vault is ${selection.status}`);
+            const approved = await ctx.ui.confirm("Pull private memory main?",
+              `Fast-forward ${selection.path}. Pulled notes remain inactive until approved on this machine.`);
+            if (!approved) { ctx.ui.notify("Memory pull cancelled", "info"); return; }
+            permission = permissionContext({ ...permission, authorizedPaths: [
+              ...permission.authorizedPaths, memorySyncTarget(selection.path, "pull"),
+            ] });
+          }
+          const result = await pullMemory({ agentDir: agentDir(), permission });
+          ctx.ui.notify(JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
           return;
         }
         const review = /^review\s+(.+)$/.exec(command);
@@ -271,7 +314,7 @@ export default function (pi) {
         const match = /^(create|connect)\s+(.+)$/.exec(command);
         const action = command === "skip" ? "skip" : match?.[1];
         if (!action) {
-          ctx.ui.notify("Usage: /pify-memory [status|create <absolute path>|connect <absolute path>|skip|review <note>|approve <note> [review-code]|revoke <note>|snapshot]", "warning");
+          ctx.ui.notify("Usage: /pify-memory [status|create <absolute path>|connect <absolute path>|skip|review <note>|approve <note> [review-code]|revoke <note>|snapshot|push-preview|push [review-code]|pull]", "warning");
           return;
         }
         let permission = currentPermission();
@@ -294,7 +337,7 @@ export default function (pi) {
           await skipMemoryVault({ agentDir: agentDir(), permission });
         ctx.ui.notify(ctx.mode === "tui" ? `Memory vault: ${result.status ?? result.outcome}` : JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
       } catch (error) {
-        ctx.ui.notify(ctx.mode === "tui" ? `Memory selection unchanged: ${error.message}` : JSON.stringify({ status: "conflict", reason: error.message }), "warning");
+        ctx.ui.notify(ctx.mode === "tui" ? `Pify memory: ${error.message}` : JSON.stringify({ status: "conflict", reason: error.message }), "warning");
       }
     },
   });

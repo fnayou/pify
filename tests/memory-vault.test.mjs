@@ -79,9 +79,10 @@ test("connect refuses a scope collision before adding any folders", async (t) =>
   assert.deepEqual(await inspectMemoryVault({ agentDir }), { status: "unconfigured" });
 });
 
-test("vault paths inside Pi state or the Pify package are refused", async (t) => {
-  const { agentDir, permission } = await fixture(t);
+test("vault paths overlapping Pi state or the Pify package are refused", async (t) => {
+  const { root, agentDir, permission } = await fixture(t);
   const insideAgent = path.join(agentDir, "memory");
-  await assert.rejects(createMemoryVault({ agentDir, vaultPath: insideAgent, permission }), /outside Pi agent/);
+  await assert.rejects(createMemoryVault({ agentDir, vaultPath: insideAgent, permission }), /must not overlap/);
   await assert.rejects(fs.lstat(insideAgent), { code: "ENOENT" });
+  await assert.rejects(connectMemoryVault({ agentDir, vaultPath: root, permission }), /must not overlap/);
 });

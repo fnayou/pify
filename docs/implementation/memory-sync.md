@@ -1,0 +1,13 @@
+# Private memory repository sync
+
+Pify remains a bootstrap project. The private Pi package can sync selected vault notes through a separate private GitHub repository. The vault must be the root of its own Git repository, with `origin` set to a credential-free GitHub SSH or HTTPS URL. Pify checks GitHub's `isPrivate` value before each push or pull. It never uses the public Pify repository as a memory remote.
+
+Use `/pify-memory push-preview` to list changed notes and excluded files. Only regular UTF-8 `.md` files under `00-inbox/`, `01-global/`, `02-projects/`, `03-reference/`, and `99-archive/` are eligible. Dot paths, links, binary files, and notes over 1 MiB are refused. Other local files stay uncommitted. The preview includes a review code bound to the selected vault, repository, branch, Git heads, paths, actions, and note hashes.
+
+`/pify-memory push` confirms the preview interactively. Headless use requires `/pify-memory push <review-code>` and the exact `memory/sync-push/<sha256>` Pify scope target. The digest covers the selected vault's canonical absolute path. Pify rechecks the preview, stages only reviewed notes, verifies staged bytes, commits to a `pify-memory/...` branch, pushes that branch, and opens or reuses a pull request. **Pify never merges the PR.** Review and merge it manually on GitHub. If a push stops after creating a local branch or pushing it, rerun the preview and push; Pify reuses an open PR. Return the vault to `main` before pulling.
+
+`/pify-memory pull` confirms interactively. Headless use requires `memory/sync-pull/<sha256>`. It fetches `origin/main` and uses `git merge --ff-only` only when the local `main` has no divergent commits, staged changes, tracked changes, or colliding untracked files. The fetched tree may contain only regular notes in the supported scopes, plus regular `README.md` and `.gitignore`. An unsupported file or link stops the pull.
+
+Pulled notes are data. Approval metadata remains in the local Pi agent directory, outside the Git vault. A note cannot enter Pify's prompt section until reviewed and approved on that machine with `/pify-memory review` and `/pify-memory approve`. Existing approvals become inactive if synced bytes change. Pi's native context-file loading is separate from this Pify gate.
+
+The automated fixture uses a local bare Git remote and a fake private GitHub response to check the PR, manual merge, fast-forward pull, and inactive approval state on macOS and Linux. On 2026-11-16, a live disposable private GitHub repository passed the same push, manual CLI merge, pull, and local approval sequence on macOS; that repository was deleted after the test. This validates the sync path, but does not make Pify a released product.
