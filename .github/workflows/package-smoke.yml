@@ -50,7 +50,7 @@ jobs:
         run: python3 scripts/smoke_pi_memory_sync.py
       - name: Verify reviewed procedure creates an inactive skill draft
         run: python3 scripts/smoke_pi_skill_draft.py
-      - name: Verify task subagent scope, cancellation, and parent responsiveness
+      - name: Verify subagent scope, status dashboard, cancellation, and parent responsiveness
         run: python3 scripts/smoke_pi_subagents.py
       - name: Verify fresh and personal theme behavior
         run: python3 scripts/smoke_pi_theme.py
