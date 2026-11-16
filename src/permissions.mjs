@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 const MODES = ["safe", "balanced", "full"];
 const RESULT_SCHEMA = "pify.permission-result/v1";
+export const SHELL_COMMAND_RESOURCE = "commands/shell";
 
 function exactPath(value) {
   return typeof value === "string" && value.length > 0 && !value.startsWith("/") && !value.includes("\\") &&
@@ -67,6 +68,15 @@ export function authorizePifyAction({ permission = permissionContext(), requestI
     };
   }
   return { ...base, outcome: "allowed" };
+}
+
+/** A shell dispatch grants its subprocesses the same OS account; Safe never grants it. */
+export function authorizeShellAction({ permission = permissionContext(), requestId = randomUUID(), action = {
+  kind: "execute-shell", targets: [SHELL_COMMAND_RESOURCE],
+} } = {}) {
+  const decision = authorizePifyAction({ permission, requestId, action });
+  if (decision.outcome !== "allowed" || decision.mode !== "safe") return decision;
+  return { ...decision, outcome: "denied", reason: "Safe mode does not dispatch shell commands" };
 }
 
 export function modeLabel(permission) {

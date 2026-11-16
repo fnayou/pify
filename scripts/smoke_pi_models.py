@@ -80,10 +80,12 @@ def start_server(kind: str) -> ThreadingHTTPServer:
 
 
 class RpcSession:
-    def __init__(self, workspace: Path, env: dict[str, str], *, offline: bool = True, timeout: int = 30, extra_args: list[str] | None = None):
+    def __init__(self, workspace: Path, env: dict[str, str], *, offline: bool = True, timeout: int = 30,
+                 extra_args: list[str] | None = None, enable_tools: bool = False):
         self.timeout = timeout
         self.process = subprocess.Popen(
-            ["pi", *(["--offline"] if offline else []), "--no-mcp", "--no-tools", "--no-context-files", "--no-session", "--mode", "rpc", *(extra_args or [])],
+            ["pi", *(["--offline"] if offline else []), "--no-mcp", *([] if enable_tools else ["--no-tools"]),
+             "--no-context-files", "--no-session", "--mode", "rpc", *(extra_args or [])],
             cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         self.pending = bytearray()

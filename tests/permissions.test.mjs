@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { applyAdoption, previewAdoption, previewUninstall, rollbackAdoption, uninstallManagedFiles } from "../src/adoption.mjs";
-import { authorizePifyAction, deriveWorkerPermission, modeLabel, permissionContext } from "../src/permissions.mjs";
+import { authorizePifyAction, authorizeShellAction, deriveWorkerPermission, modeLabel, permissionContext, SHELL_COMMAND_RESOURCE } from "../src/permissions.mjs";
 
 test("Balanced is visible by default; every mode fails closed without scope", () => {
   const basic = permissionContext();
@@ -41,6 +41,17 @@ test("worker mode and scope never widen caller authority", () => {
   assert.deepEqual(worker.authorizedPaths, ["skills/a.md"]);
   assert.throws(() => deriveWorkerPermission(caller, { mode: "full", callerId: "worker" }), /exceeds caller mode/);
   assert.throws(() => deriveWorkerPermission(caller, { authorizedPaths: ["skills/c.md"], callerId: "worker" }), /exceeds caller scope/);
+});
+
+test("shell dispatch covers nested commands in each mode", () => {
+  for (const mode of ["safe", "balanced", "full"]) {
+    const unscoped = authorizeShellAction({ permission: permissionContext({ mode }) });
+    assert.equal(unscoped.outcome, "clarification_required");
+    assert.deepEqual(unscoped.action.targets, [SHELL_COMMAND_RESOURCE]);
+    const scoped = authorizeShellAction({ permission: permissionContext({ mode, authorizedPaths: [SHELL_COMMAND_RESOURCE] }) });
+    assert.equal(scoped.outcome, mode === "safe" ? "denied" : "allowed");
+    if (mode === "safe") assert.match(scoped.reason, /does not dispatch shell/);
+  }
 });
 
 test("headless adoption and uninstall return structured refusal without modifying files", async (t) => {
