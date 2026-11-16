@@ -1,6 +1,6 @@
 # Reviewed memory preferences
 
-Pify remains a bootstrap project. The private Pi package can apply locally approved Markdown preferences from a selected vault. It does not turn every vault note into an instruction, generate suggestions, or sync memory. Pi's own context-file loading remains separate; Pify cannot block instructions Pi already loaded natively.
+Pify remains a bootstrap project. The private Pi package can apply locally approved Markdown preferences from a selected vault. It does not turn every vault note into an instruction or generate suggestions. Optional private Git sync is described in [private memory repository sync](memory-sync.md). Pi's own context-file loading remains separate; Pify cannot block instructions Pi already loaded natively.
 
 `/pify-memory review <vault-relative note.md>` reads at most 4 KiB of one regular, standalone UTF-8 file and returns its exact content, scope, and review code. Only notes under `01-global/preferences/` or `02-projects/<project>/context/` are eligible for automatic use. Inbox, reference, archive, and other notes remain inactive. A project note binds to the current project's canonical path at approval time. Linked files and linked parent directories are refused.
 

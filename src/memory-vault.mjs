@@ -109,8 +109,8 @@ export async function resolveMemoryVaultPath(agentDir, vaultPath) {
   const parent = await fs.realpath(path.dirname(path.resolve(vaultPath)));
   const candidate = path.join(parent, path.basename(vaultPath));
   const agent = await fs.realpath(requireAgentDir(agentDir));
-  if (inside(candidate, agent) || inside(candidate, PACKAGE_ROOT)) {
-    throw new Error("Vault must be outside Pi agent and Pify package directories");
+  if (inside(candidate, agent) || inside(agent, candidate) || inside(candidate, PACKAGE_ROOT) || inside(PACKAGE_ROOT, candidate)) {
+    throw new Error("Vault must not overlap Pi agent or Pify package directories");
   }
   return candidate;
 }
