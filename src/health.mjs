@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { listOwnedFiles } from "./managed-state.mjs";
+import { inspectMemoryVault } from "./memory-vault.mjs";
 import { inspectProjectWorkflow, listProjectWorkflows } from "./project-workflow.mjs";
 import { inspectThemeSelection } from "./theme-selection.mjs";
 
@@ -143,6 +144,9 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
   catch (error) {
     warnings.push(`Project workflow index could not be read: ${error.message}`);
   }
+  let memoryVault = { status: "unavailable" };
+  try { memoryVault = await inspectMemoryVault({ agentDir }); }
+  catch (error) { warnings.push(`Memory vault selection could not be read: ${error.message}`); }
   return {
     schema: "pify.health/v1",
     compatibility: {
@@ -156,6 +160,7 @@ export async function buildHealthReport({ agentDir, projectDir = null, piVersion
     themeSelection,
     projectWorkflow,
     projectWorkflows,
+    memoryVault,
     inventory: {
       status: inventoryStatus,
       managed: owned.filter((item) => item.action !== "conflict").map(({ relativePath, digest, version: resourceVersion }) => ({ relativePath, digest, version: resourceVersion })),
@@ -175,6 +180,7 @@ export function formatHealthReport(report) {
       ? `Saved theme: ${report.themeSelection.savedTheme ?? "none"}; Pify rollback: ${report.themeSelection.rollbackAvailable ? "available" : "unavailable"}`
       : `Theme recovery: ${report.themeSelection.status}`,
     `Project workflow: ${report.projectWorkflow.status}`,
+    `Memory vault: ${report.memoryVault.status}${report.memoryVault.path ? ` (${report.memoryVault.path})` : ""}${report.memoryVault.reason ? `: ${report.memoryVault.reason}` : ""}`,
     `Managed resources: ${report.inventory.managed.length}`,
   ];
   for (const item of report.projectWorkflows) lines.push(`Workflow project: ${item.status} (${item.path})`);

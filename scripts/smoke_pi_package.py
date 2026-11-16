@@ -557,7 +557,7 @@ def main() -> None:
         if len(command_responses) != 1:
             raise AssertionError(f"Pi did not return commands after removal: {after_remove}")
         command_names = {item["name"] for item in command_responses[0]["data"]["commands"]}
-        if "pify-health" in command_names or "pify-model-sync" in command_names or "skill:pify-test-first" in command_names or "skill:pify-handoff" in command_names:
+        if "pify-health" in command_names or "pify-model-sync" in command_names or "pify-memory" in command_names or "skill:pify-test-first" in command_names or "skill:pify-handoff" in command_names:
             raise AssertionError(f"Pify commands remained after removal: {sorted(command_names)}")
         if "skill:pify-debug" not in command_names:
             raise AssertionError("Pi package removal hid the existing user skill")
