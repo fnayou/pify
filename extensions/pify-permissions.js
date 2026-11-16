@@ -13,7 +13,7 @@ import { approveMemoryNote, buildPreferenceSnapshot, memoryApprovalTarget, previ
 import { connectMemoryVault, createMemoryVault, inspectMemoryVault, MEMORY_STATE_RESOURCE, memoryVaultTargets, resolveMemoryVaultPath, skipMemoryVault } from "../src/memory-vault.mjs";
 import { memorySyncTarget, previewMemoryPush, pullMemory, pushMemory } from "../src/memory-sync.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
-import { authorizePifyAction, authorizeShellAction, clarificationResult, modeLabel, permissionContext } from "../src/permissions.mjs";
+import { authorizePifyAction, authorizeShellAction, clarificationResult, modeLabel, permissionContext, SHELL_COMMAND_RESOURCE } from "../src/permissions.mjs";
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
 import { createSkillDraft, previewSkillDraft, skillDraftTarget } from "../src/skill-draft.mjs";
@@ -240,10 +240,10 @@ export default function (pi) {
     handler: async (args, ctx) => {
       const permission = currentPermission();
       const target = args.trim();
-      const result = authorizePifyAction({
-        permission,
-        action: { kind: "adopt", targets: target ? [target] : [] },
-      });
+      const action = { kind: target === SHELL_COMMAND_RESOURCE ? "execute-shell" :
+        target === JOB_START_RESOURCE ? "start-job" : "adopt", targets: target ? [target] : [] };
+      const result = target === SHELL_COMMAND_RESOURCE || target === JOB_START_RESOURCE
+        ? authorizeShellAction({ permission, action }) : authorizePifyAction({ permission, action });
       ctx.ui.notify(JSON.stringify(result), "info");
     },
   });
