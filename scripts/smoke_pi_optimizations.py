@@ -42,8 +42,8 @@ def fixture(root: Path, name: str, install_pify: bool) -> tuple[Path, Path, dict
     return agent, workspace, env
 
 
-def bash_result(workspace: Path, env: dict[str, str], name: str, command: str) -> dict:
-    records = rpc(workspace, env, {"id": name, "type": "bash", "command": command})
+def bash_result(workspace: Path, env: dict[str, str], name: str, command: str, scope: str | None = None) -> dict:
+    records = rpc(workspace, env, {"id": name, "type": "bash", "command": command}, scope=scope)
     response = next(item for item in records if item.get("type") == "response" and item.get("id") == name)
     return response.get("data", {})
 
@@ -62,7 +62,7 @@ def main() -> None:
             raise AssertionError(f"Existing Pi compaction setting changed: {report['nativeCompaction']}")
         for name, command in GOLDEN_COMMANDS.items():
             base = bash_result(base_workspace, base_env, name, command)
-            pify = bash_result(pify_workspace, pify_env, name, command)
+            pify = bash_result(pify_workspace, pify_env, name, command, scope="commands/shell")
             if base != GOLDEN_RESULTS[name]:
                 raise AssertionError(f"Pi baseline changed for {name}: {base!r}")
             if pify != base:
