@@ -8,12 +8,12 @@ import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { inspectLocal } from "../src/inspect.mjs";
 import { applyModelSync, MODEL_SYNC_TARGETS, prepareModelSync } from "../src/model-sync.mjs";
 import { requestChoice } from "../src/choices.mjs";
-import { SessionJobs } from "../src/jobs.mjs";
+import { JOB_START_RESOURCE, SessionJobs } from "../src/jobs.mjs";
 import { approveMemoryNote, buildPreferenceSnapshot, memoryApprovalTarget, previewMemoryNote, revokeMemoryNote } from "../src/memory-approvals.mjs";
 import { connectMemoryVault, createMemoryVault, inspectMemoryVault, MEMORY_STATE_RESOURCE, memoryVaultTargets, resolveMemoryVaultPath, skipMemoryVault } from "../src/memory-vault.mjs";
 import { memorySyncTarget, previewMemoryPush, pullMemory, pushMemory } from "../src/memory-sync.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
-import { authorizePifyAction, clarificationResult, modeLabel, permissionContext } from "../src/permissions.mjs";
+import { authorizePifyAction, authorizeShellAction, clarificationResult, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
 import { createSkillDraft, previewSkillDraft, skillDraftTarget } from "../src/skill-draft.mjs";
@@ -27,7 +27,6 @@ import {
 import { inspectThemeSelection, PIFY_THEME, rollbackPifyTheme, selectPifyTheme, THEME_SETTING_RESOURCE } from "../src/theme-selection.mjs";
 
 const execFileAsync = promisify(execFile);
-const JOB_START_RESOURCE = "jobs/current-workspace";
 
 export default function (pi) {
   pi.registerFlag("pify-mode", { type: "string", default: "balanced", description: "Pify Safe, Balanced, or Full mode" });
@@ -68,6 +67,18 @@ export default function (pi) {
       const result = await searchLocal({ cwd: ctx.cwd, ...params, signal });
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
     },
+  });
+
+  pi.on("tool_call", (event) => {
+    if (event.toolName !== "bash") return;
+    const decision = authorizeShellAction({ permission: currentPermission() });
+    if (decision.outcome !== "allowed") return { block: true, reason: JSON.stringify(decision) };
+  });
+  pi.on("user_bash", () => {
+    const decision = authorizeShellAction({ permission: currentPermission() });
+    if (decision.outcome !== "allowed") return {
+      result: { output: JSON.stringify(decision), exitCode: 126, cancelled: false, truncated: false },
+    };
   });
 
   pi.registerTool({
@@ -137,7 +148,7 @@ export default function (pi) {
           const command = args.trim().slice("start".length).trim();
           if (!command) throw new Error("Usage: /pify-job start <shell command>");
           let permission = currentPermission();
-          if (ctx.mode === "tui") {
+          if (ctx.mode === "tui" && permission.mode !== "safe") {
             const approved = await ctx.ui.confirm("Start background job?", `Run in ${ctx.cwd}: ${command}`);
             if (!approved) {
               ctx.ui.notify("Job not started", "info");
@@ -145,10 +156,8 @@ export default function (pi) {
             }
             permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, JOB_START_RESOURCE] });
           }
-          const decision = authorizePifyAction({ permission, action: { kind: "start-job", targets: [JOB_START_RESOURCE] } });
-          result = decision.outcome === "allowed"
-            ? await manager.start({ command, cwd: ctx.cwd })
-            : { status: "not_started", permission: decision };
+          const started = await manager.start({ command, cwd: ctx.cwd, permission });
+          result = started.outcome ? { status: "not_started", permission: started } : started;
         } else if (action === "list") result = manager.list();
         else if (action === "inspect") result = manager.inspect(id);
         else if (action === "log") result = manager.log(id);

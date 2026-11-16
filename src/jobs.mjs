@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { authorizeShellAction, permissionContext } from "./permissions.mjs";
+
+export const JOB_START_RESOURCE = "jobs/current-workspace";
 const MAX_ACTIVE = 4;
 const MAX_HISTORY = 20;
 const MAX_LOG_CHARS = 32_768;
@@ -66,10 +69,12 @@ export class SessionJobs {
     return { ...publicJob(job), stdout: job.logs.stdout, stderr: job.logs.stderr };
   }
 
-  async start({ command, cwd }) {
+  async start({ command, cwd, permission = permissionContext() }) {
     if (this.closed) throw new Error("Session is ending");
     if (typeof command !== "string" || !command.trim() || command.includes("\0") || command.length > 4096) throw new Error("A nonempty shell command of at most 4096 characters is required");
     if (typeof cwd !== "string" || !path.isAbsolute(cwd)) throw new Error("Absolute working directory is required");
+    const decision = authorizeShellAction({ permission, action: { kind: "start-job", targets: [JOB_START_RESOURCE] } });
+    if (decision.outcome !== "allowed") return decision;
     const active = [...this.jobs.values()].filter((job) => job.state === "running" || job.state === "starting").length;
     if (active >= MAX_ACTIVE) throw new Error(`At most ${MAX_ACTIVE} jobs may run in one session`);
     for (const [id, job] of this.jobs) {

@@ -12,9 +12,10 @@ from smoke_pi_workflow import PACKAGE_ROOT, notice, rpc, run_pi
 
 
 class Session:
-    def __init__(self, workspace: Path, env: dict[str, str], scope: str):
+    def __init__(self, workspace: Path, env: dict[str, str], scope: str, mode: str = "balanced"):
         self.process = subprocess.Popen(
-            ["pi", "--offline", "--no-mcp", "--no-session", "--mode", "rpc", "--approve", "--pify-scope", scope],
+            ["pi", "--offline", "--no-mcp", "--no-session", "--mode", "rpc", "--approve",
+             "--pify-mode", mode, "--pify-scope", scope],
             cwd=workspace, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         self.pending = bytearray()
@@ -112,6 +113,37 @@ def main() -> None:
             session.close()
         if orphan_pid is None or group_alive(orphan_pid):
             raise AssertionError(f"Session exit left job group {orphan_pid} running")
+
+        for mode in ("safe", "balanced", "full"):
+            marker = workspace / f"nested-{mode}.txt"
+            command = f"/pify-job start sh -c 'printf nested > {marker.name}'"
+            unscoped = Session(workspace, env, "", mode)
+            try:
+                blocked = unscoped.prompt(f"unscoped-{mode}", command)
+                if blocked.get("permission", {}).get("outcome") != "clarification_required" or marker.exists():
+                    raise AssertionError(f"Unscoped nested command ran in {mode}: {blocked}")
+            finally:
+                unscoped.close()
+            scoped = Session(workspace, env, "jobs/current-workspace", mode)
+            try:
+                result = scoped.prompt(f"scoped-{mode}", command)
+                if mode == "safe":
+                    if result.get("permission", {}).get("outcome") != "denied" or marker.exists():
+                        raise AssertionError(f"Safe nested command ran: {result}")
+                else:
+                    if not result.get("id"):
+                        raise AssertionError(f"Scoped nested command did not start in {mode}: {result}")
+                    for attempt in range(40):
+                        state = scoped.prompt(f"inspect-{mode}-{attempt}", f"/pify-job inspect {result['id']}")
+                        if state.get("state") == "succeeded":
+                            break
+                        time.sleep(0.05)
+                    else:
+                        raise AssertionError(f"Nested command did not finish in {mode}: {state}")
+                    if marker.read_text() != "nested":
+                        raise AssertionError(f"Nested command output missing in {mode}")
+            finally:
+                scoped.close()
         print(f"Pify session jobs smoke passed on {os.uname().sysname}")
 
 
