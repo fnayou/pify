@@ -16,6 +16,7 @@ import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, clarificationResult, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
+import { createSkillDraft, previewSkillDraft, skillDraftTarget } from "../src/skill-draft.mjs";
 import {
   formatGitSetupPreview, formatGitSetupVerification, formatSetupPreview, formatSetupVerification,
   previewGitSetup, previewGitUpdateSetup, previewLocalSetup, verifyGitSetup, verifyLocalSetup,
@@ -190,7 +191,7 @@ export default function (pi) {
   });
 
   pi.registerCommand("pify-memory", {
-    description: "Set up, review, approve, and sync a private memory vault",
+    description: "Set up, review, approve, sync, and draft skills from private memory",
     handler: async (args, ctx) => {
       try {
         let command = args.trim();
@@ -203,14 +204,20 @@ export default function (pi) {
           return;
         }
         if (!command) {
-          const selected = await ctx.ui.select("Pify memory", ["Status", "Create new vault", "Connect existing vault", "Skip memory", "Review note", "Approve note", "Revoke note", "Snapshot", "Push notes", "Pull notes"]);
+          const selected = await ctx.ui.select("Pify memory", ["Status", "Create new vault", "Connect existing vault", "Skip memory", "Review note", "Approve note", "Revoke note", "Snapshot", "Push notes", "Pull notes", "Draft skill"]);
           if (!selected) return;
-          const action = { Status: "status", "Create new vault": "create", "Connect existing vault": "connect", "Skip memory": "skip", "Review note": "review", "Approve note": "approve", "Revoke note": "revoke", Snapshot: "snapshot", "Push notes": "push", "Pull notes": "pull" }[selected];
+          const action = { Status: "status", "Create new vault": "create", "Connect existing vault": "connect", "Skip memory": "skip", "Review note": "review", "Approve note": "approve", "Revoke note": "revoke", Snapshot: "snapshot", "Push notes": "push", "Pull notes": "pull", "Draft skill": "draft" }[selected];
           if (["create", "connect", "review", "approve", "revoke"].includes(action)) {
             const entered = await ctx.ui.input(action === "create" || action === "connect" ? "Absolute vault path" : "Vault-relative Markdown note path",
               action === "create" ? path.join(os.homedir(), "pify-memory") : "");
             if (!entered) return;
             command = `${action} ${entered.trim()}`;
+          } else if (action === "draft") {
+            const note = await ctx.ui.input("Approved procedure path in the vault", "03-reference/procedures/");
+            if (!note) return;
+            const destination = await ctx.ui.input("Absolute new draft skill directory", path.join(ctx.cwd, ".pi", "skills", "my-procedure"));
+            if (!destination) return;
+            command = `draft ${note.trim()} | ${destination.trim()}`;
           } else command = action;
         }
         if (command === "status") {
@@ -265,6 +272,37 @@ export default function (pi) {
           ctx.ui.notify(JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
           return;
         }
+        if (command.startsWith("draft-preview ") || command.startsWith("draft ")) {
+          const previewOnly = command.startsWith("draft-preview ");
+          const fields = command.slice(previewOnly ? "draft-preview ".length : "draft ".length).split("|").map((item) => item.trim());
+          if (fields.length < 2 || fields.length > (previewOnly ? 2 : 3) || !fields[0] || !fields[1]) {
+            throw new Error("Usage: /pify-memory draft-preview <procedure> | <absolute directory>, or draft <procedure> | <absolute directory> | <review-code>");
+          }
+          const preview = await previewSkillDraft({ agentDir: agentDir(), relativePath: fields[0], destinationDir: fields[1] });
+          if (previewOnly) {
+            ctx.ui.notify(ctx.mode === "tui"
+              ? `Inactive skill draft: ${preview.draftPath}\n${preview.content}\nReview code: ${preview.reviewCode}`
+              : JSON.stringify(preview), "info");
+            return;
+          }
+          let reviewCode = fields[2];
+          let permission = currentPermission();
+          if (ctx.mode === "tui") {
+            const approved = await ctx.ui.confirm("Create inactive skill draft?",
+              `Source: ${preview.relativePath}\nDestination: ${preview.draftPath}\nReview before activation or publication.\n\n${preview.content}`);
+            if (!approved) { ctx.ui.notify("Skill draft unchanged", "info"); return; }
+            reviewCode ??= preview.reviewCode;
+            permission = permissionContext({ ...permission, authorizedPaths: [
+              ...permission.authorizedPaths, skillDraftTarget(preview.vaultPath, preview.relativePath, preview.directory),
+            ] });
+          } else if (!reviewCode) {
+            ctx.ui.notify(JSON.stringify(clarificationResult({ permission, question: "Run draft-preview and supply its review code before creating a skill draft" })), "warning");
+            return;
+          }
+          const result = await createSkillDraft({ agentDir: agentDir(), relativePath: fields[0], destinationDir: fields[1], reviewCode, permission });
+          ctx.ui.notify(JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
+          return;
+        }
         const review = /^review\s+(.+)$/.exec(command);
         if (review) {
           const preview = await previewMemoryNote({ agentDir: agentDir(), relativePath: review[1], projectDir: ctx.cwd });
@@ -280,8 +318,8 @@ export default function (pi) {
           if (ctx.mode === "tui") {
             const preview = await previewMemoryNote({ agentDir: agentDir(), relativePath: approve[1], projectDir: ctx.cwd });
             if (preview.scope === "inactive") throw new Error("Move this note to global preferences or project context before approval");
-            const approved = await ctx.ui.confirm("Approve memory preference?",
-              `Note: ${preview.relativePath}\nScope: ${preview.scope}${preview.projectPath ? ` (${preview.projectPath})` : ""}\nApproved text may be sent to the selected model provider on each run.\n\n${preview.content}`);
+            const approved = await ctx.ui.confirm("Approve memory note?",
+              `Note: ${preview.relativePath}\nScope: ${preview.scope}${preview.projectPath ? ` (${preview.projectPath})` : ""}\n${preview.scope === "procedure" ? "Procedure approval permits a later draft; it does not add text to the model prompt." : "Approved text may be sent to the selected model provider on each run."}\n\n${preview.content}`);
             if (!approved) { ctx.ui.notify("Memory approval unchanged", "info"); return; }
             reviewCode ??= preview.reviewCode;
             permission = permissionContext({ ...permission, authorizedPaths: [
@@ -292,7 +330,7 @@ export default function (pi) {
             return;
           }
           const result = await approveMemoryNote({ agentDir: agentDir(), relativePath: approve[1], projectDir: ctx.cwd, reviewCode, permission });
-          ctx.ui.notify(ctx.mode === "tui" ? `Memory preference: ${result.status ?? result.outcome}` : JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
+          ctx.ui.notify(ctx.mode === "tui" ? `Memory note: ${result.status ?? result.outcome}` : JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
           return;
         }
         const revoke = /^revoke\s+(.+)$/.exec(command);
@@ -308,13 +346,13 @@ export default function (pi) {
             ] });
           }
           const result = await revokeMemoryNote({ agentDir: agentDir(), relativePath: revoke[1], permission });
-          ctx.ui.notify(ctx.mode === "tui" ? `Memory preference: ${result.status ?? result.outcome}` : JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
+          ctx.ui.notify(ctx.mode === "tui" ? `Memory note: ${result.status ?? result.outcome}` : JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
           return;
         }
         const match = /^(create|connect)\s+(.+)$/.exec(command);
         const action = command === "skip" ? "skip" : match?.[1];
         if (!action) {
-          ctx.ui.notify("Usage: /pify-memory [status|create <absolute path>|connect <absolute path>|skip|review <note>|approve <note> [review-code]|revoke <note>|snapshot|push-preview|push [review-code]|pull]", "warning");
+          ctx.ui.notify("Usage: /pify-memory [status|create <absolute path>|connect <absolute path>|skip|review <note>|approve <note> [review-code]|revoke <note>|snapshot|push-preview|push [review-code]|pull|draft-preview <procedure> | <absolute directory>|draft <procedure> | <absolute directory> | <review-code>]", "warning");
           return;
         }
         let permission = currentPermission();

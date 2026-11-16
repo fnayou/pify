@@ -93,7 +93,7 @@ test("inbox and unsafe notes never enter applied preferences", async (t) => {
   const preview = await previewMemoryNote({ agentDir, relativePath: inboxPath, projectDir: first });
   assert.equal(preview.scope, "inactive");
   await assert.rejects(approveMemoryNote({ agentDir, relativePath: inboxPath, projectDir: first,
-    reviewCode: preview.reviewCode, permission: approvalPermission(vaultPath, inboxPath) }), /cannot become automatic/);
+    reviewCode: preview.reviewCode, permission: approvalPermission(vaultPath, inboxPath) }), /cannot become an automatic preference/);
   await assert.rejects(previewMemoryNote({ agentDir, relativePath: "../outside.md", projectDir: first }), /without traversal/);
   const outside = path.join(root, "outside.md");
   await fs.writeFile(outside, "Outside data.\n");

@@ -32,6 +32,7 @@ function scopeFor(relativePath) {
   const parts = partsFor(relativePath);
   if (parts[0] === "01-global" && parts[1] === "preferences" && parts.length >= 3) return "global";
   if (parts[0] === "02-projects" && parts[1] && parts[2] === "context" && parts.length >= 4) return "project";
+  if (parts[0] === "03-reference" && parts[1] === "procedures" && parts.length >= 3) return "procedure";
   return "inactive";
 }
 
@@ -92,8 +93,8 @@ function validEntry(entry) {
   try { partsFor(entry.relativePath); } catch { return false; }
   return typeof entry.vaultPath === "string" && path.isAbsolute(entry.vaultPath) && entry.vaultPath.length <= 4096 &&
     DECIMAL.test(entry.vaultDevice) && DECIMAL.test(entry.vaultInode) &&
-    ["global", "project"].includes(entry.scope) && entry.scope === scopeFor(entry.relativePath) &&
-    (entry.scope === "global" ? entry.projectPath === null : typeof entry.projectPath === "string" && path.isAbsolute(entry.projectPath)) &&
+    ["global", "project", "procedure"].includes(entry.scope) && entry.scope === scopeFor(entry.relativePath) &&
+    (entry.scope !== "project" ? entry.projectPath === null : typeof entry.projectPath === "string" && path.isAbsolute(entry.projectPath)) &&
     HEX.test(entry.digest) && DECIMAL.test(entry.fileDevice) && DECIMAL.test(entry.fileInode) && DECIMAL.test(entry.changedAt) &&
     Number.isInteger(entry.bytes) && entry.bytes >= 0 && entry.bytes <= MAX_NOTE_BYTES &&
     typeof entry.approvedAt === "string" && !Number.isNaN(Date.parse(entry.approvedAt));
@@ -206,7 +207,7 @@ export async function previewMemoryNote({ agentDir, relativePath, projectDir }) 
 export async function approveMemoryNote({ agentDir, relativePath, projectDir, reviewCode, permission }) {
   if (typeof reviewCode !== "string" || !HEX.test(reviewCode)) throw new Error("A 64-character review code is required");
   const preview = await previewMemoryNote({ agentDir, relativePath, projectDir });
-  if (preview.scope === "inactive") throw new Error("Inbox, reference, and archive notes cannot become automatic preferences");
+  if (preview.scope === "inactive") throw new Error("This note cannot become an automatic preference or approved procedure");
   if (reviewCode !== preview.reviewCode) throw new Error("Memory note changed after review");
   const decision = authorizePifyAction({ permission, action: {
     kind: "memory-approve", targets: [memoryApprovalTarget(preview.vaultPath, relativePath)],
@@ -241,6 +242,24 @@ export async function revokeMemoryNote({ agentDir, relativePath, permission }) {
   });
 }
 
+/** Return one current approved procedure without placing it in the prompt snapshot. */
+export async function readApprovedProcedure({ agentDir, relativePath }) {
+  if (scopeFor(relativePath) !== "procedure") throw new Error("Source must be a procedure under 03-reference/procedures");
+  const vault = await selectedVault(agentDir);
+  const { registry } = await readRegistry(agentDir);
+  const entry = registry.entries.find((item) => item.vaultPath === vault.path && item.relativePath === relativePath);
+  if (!entry || entry.scope !== "procedure" || entry.vaultDevice !== vault.device || entry.vaultInode !== vault.inode) {
+    throw new Error("Procedure is not approved on this machine");
+  }
+  const note = await readNote(vault.path, relativePath);
+  if (note.digest !== entry.digest || note.device !== entry.fileDevice || note.inode !== entry.fileInode ||
+      note.changedAt !== entry.changedAt || note.bytes !== entry.bytes) {
+    throw new Error("Approved procedure changed; review and approve it again");
+  }
+  if (!sameVault(vault, await selectedVault(agentDir))) throw new Error("Selected vault changed during procedure review");
+  return { vaultPath: vault.path, relativePath, content: note.content, digest: note.digest };
+}
+
 /** Build only currently matching, locally approved preferences for one Pi turn. */
 export async function buildPreferenceSnapshot({ agentDir, projectDir }) {
   const selection = await inspectMemoryVault({ agentDir });
@@ -251,7 +270,7 @@ export async function buildPreferenceSnapshot({ agentDir, projectDir }) {
   try { projectPath = await projectPathFor(projectDir); } catch { /* Global preferences still apply. */ }
   const entries = [], inactive = [];
   let total = 0;
-  for (const entry of registry.registry.entries.filter((item) => item.vaultPath === vault.path)) {
+  for (const entry of registry.registry.entries.filter((item) => item.vaultPath === vault.path && item.scope !== "procedure")) {
     if (entry.vaultDevice !== vault.device || entry.vaultInode !== vault.inode ||
         entry.scope !== scopeFor(entry.relativePath) || (entry.scope === "project" && entry.projectPath !== projectPath)) {
       inactive.push({ relativePath: entry.relativePath, reason: "scope_or_vault_changed" });
