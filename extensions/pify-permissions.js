@@ -9,6 +9,7 @@ import { inspectLocal } from "../src/inspect.mjs";
 import { applyModelSync, MODEL_SYNC_TARGETS, prepareModelSync } from "../src/model-sync.mjs";
 import { requestChoice } from "../src/choices.mjs";
 import { SessionJobs } from "../src/jobs.mjs";
+import { connectMemoryVault, createMemoryVault, inspectMemoryVault, MEMORY_STATE_RESOURCE, memoryVaultTargets, resolveMemoryVaultPath, skipMemoryVault } from "../src/memory-vault.mjs";
 import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, modeLabel, permissionContext } from "../src/permissions.mjs";
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
@@ -167,6 +168,65 @@ export default function (pi) {
       }
       const report = await buildHealthReport({ agentDir: agentDir(), projectDir: ctx.cwd, piVersion });
       ctx.ui.notify(ctx.mode === "tui" ? formatHealthReport(report) : JSON.stringify(report), "info");
+    },
+  });
+
+  pi.registerCommand("pify-memory", {
+    description: "Inspect, create, connect, or skip an optional Markdown memory vault",
+    handler: async (args, ctx) => {
+      try {
+        let command = args.trim();
+        if (!command && ctx.mode !== "tui") {
+          ctx.ui.notify(JSON.stringify(await requestChoice({
+            question: "Choose memory setup action and an absolute path when needed",
+            options: ["status", "create <absolute path>", "connect <absolute path>", "skip"],
+            permission: currentPermission(),
+          })), "warning");
+          return;
+        }
+        if (!command) {
+          const selected = await ctx.ui.select("Pify memory", ["Status", "Create new vault", "Connect existing vault", "Skip memory"]);
+          if (!selected) return;
+          const action = { Status: "status", "Create new vault": "create", "Connect existing vault": "connect", "Skip memory": "skip" }[selected];
+          if (action === "create" || action === "connect") {
+            const entered = await ctx.ui.input("Absolute vault path", action === "create" ? path.join(os.homedir(), "pify-memory") : "");
+            if (!entered) return;
+            command = `${action} ${entered.trim()}`;
+          } else command = action;
+        }
+        if (command === "status") {
+          const result = await inspectMemoryVault({ agentDir: agentDir() });
+          ctx.ui.notify(ctx.mode === "tui" ? `Memory vault: ${result.status}${result.path ? ` (${result.path})` : ""}${result.reason ? `: ${result.reason}` : ""}` : JSON.stringify(result), "info");
+          return;
+        }
+        const match = /^(create|connect)\s+(.+)$/.exec(command);
+        const action = command === "skip" ? "skip" : match?.[1];
+        if (!action) {
+          ctx.ui.notify("Usage: /pify-memory [status|create <absolute path>|connect <absolute path>|skip]", "warning");
+          return;
+        }
+        let permission = currentPermission();
+        let vaultPath = null;
+        if (match) vaultPath = await resolveMemoryVaultPath(agentDir(), match[2]);
+        if (ctx.mode === "tui") {
+          const approved = await ctx.ui.confirm(`${action === "skip" ? "Skip" : action === "create" ? "Create" : "Connect"} memory vault?`,
+            action === "skip" ? "Forget the selected vault path; keep every vault file?" :
+              `${action === "create" ? "Create empty scope folders in" : "Add missing scope folders to"} ${vaultPath} and select it?`);
+          if (!approved) {
+            ctx.ui.notify("Memory selection unchanged", "info");
+            return;
+          }
+          permission = permissionContext({ ...permission, authorizedPaths: [
+            ...permission.authorizedPaths, ...(vaultPath ? memoryVaultTargets(vaultPath) : [MEMORY_STATE_RESOURCE]),
+          ] });
+        }
+        const result = action === "create" ? await createMemoryVault({ agentDir: agentDir(), vaultPath, permission }) :
+          action === "connect" ? await connectMemoryVault({ agentDir: agentDir(), vaultPath, permission }) :
+          await skipMemoryVault({ agentDir: agentDir(), permission });
+        ctx.ui.notify(ctx.mode === "tui" ? `Memory vault: ${result.status ?? result.outcome}` : JSON.stringify(result), result.outcome && result.outcome !== "allowed" ? "warning" : "info");
+      } catch (error) {
+        ctx.ui.notify(ctx.mode === "tui" ? `Memory selection unchanged: ${error.message}` : JSON.stringify({ status: "conflict", reason: error.message }), "warning");
+      }
     },
   });
 
