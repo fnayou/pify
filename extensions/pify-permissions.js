@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
+import { applyEdit, previewEdit } from "../src/edit-previews.mjs";
 import { inspectLocal } from "../src/inspect.mjs";
 import { applyModelSync, MODEL_SYNC_TARGETS, prepareModelSync } from "../src/model-sync.mjs";
 import { requestChoice } from "../src/choices.mjs";
@@ -41,6 +42,7 @@ export default function (pi) {
   const agentDir = () => path.resolve(process.env.PI_CODING_AGENT_DIR ?? path.join(os.homedir(), ".pi", "agent"));
   const themePermission = (permission) => permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, THEME_SETTING_RESOURCE] });
   let jobs = null;
+  let pendingEdit = null;
   const sessionJobs = () => jobs ??= new SessionJobs();
   let subagents = null;
   const sessionSubagents = () => {
@@ -50,6 +52,23 @@ export default function (pi) {
     }
     return subagents;
   };
+
+  pi.registerTool({
+    name: "pify_edit_preview",
+    label: "Pify edit preview",
+    description: "Preview an exact text replacement across 1 to 12 named workspace files. Returns complete before/after content and a review code. Never writes. The user applies a reviewed preview with /pify-edit apply <reviewCode>.",
+    promptSnippet: "Preview a reviewed exact-text replacement across named files without writing",
+    parameters: Type.Object({
+      paths: Type.Array(Type.String(), { minItems: 1, maxItems: 12 }),
+      find: Type.String(),
+      replace: Type.String(),
+    }),
+    execute: async (_id, params, _signal, _onUpdate, ctx) => {
+      const report = await previewEdit({ cwd: ctx.cwd, ...params, permission: currentPermission() });
+      pendingEdit = { cwd: ctx.cwd, ...params, reviewCode: report.reviewCode };
+      return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+    },
+  });
 
   pi.registerTool({
     name: "pify_search",
@@ -110,6 +129,7 @@ export default function (pi) {
     }
   });
   pi.on("session_shutdown", async (_event, ctx) => {
+    pendingEdit = null;
     if (subagents) {
       await subagents.shutdown();
       subagents = null;
@@ -166,6 +186,60 @@ export default function (pi) {
         ctx.ui.notify(JSON.stringify(result), "info");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
+      }
+    },
+  });
+
+  pi.registerCommand("pify-edit", {
+    description: "Preview or apply a reviewed exact-text replacement across named workspace files",
+    handler: async (args, ctx) => {
+      try {
+        const command = args.trim();
+        if (command.startsWith("preview ")) {
+          const parts = command.slice(8).split("|").map((part) => part.trim());
+          if (parts.length !== 3 || !parts[0] || !parts[2]) throw new Error("Usage: /pify-edit preview <find> | <replace> | <comma-separated relative files>");
+          const input = { cwd: ctx.cwd, find: parts[0], replace: parts[1], paths: parts[2].split(",").map((part) => part.trim()) };
+          const report = await previewEdit({ ...input, permission: currentPermission() });
+          pendingEdit = { ...input, reviewCode: report.reviewCode };
+          ctx.ui.notify(JSON.stringify(report), "info");
+          return;
+        }
+        const match = /^apply ([0-9a-f]{20})$/.exec(command);
+        if (!match) throw new Error("Usage: /pify-edit <preview <find> | <replace> | <files>|apply <reviewCode>>");
+        if (!pendingEdit || pendingEdit.cwd !== ctx.cwd || pendingEdit.reviewCode !== match[1]) {
+          ctx.ui.notify(JSON.stringify({ schema: "pify.edit-preview/v1", status: "stale_preview" }), "warning");
+          return;
+        }
+        const input = pendingEdit;
+        pendingEdit = null;
+        let report;
+        try { report = await previewEdit({ ...input, permission: currentPermission() }); }
+        catch {
+          ctx.ui.notify(JSON.stringify({ schema: "pify.edit-preview/v1", status: "stale_preview" }), "warning");
+          return;
+        }
+        if (report.reviewCode !== match[1]) {
+          ctx.ui.notify(JSON.stringify({ schema: "pify.edit-preview/v1", status: "stale_preview" }), "warning");
+          return;
+        }
+        if (ctx.mode === "tui") {
+          ctx.ui.notify(JSON.stringify(report), "info");
+          const chosen = await ctx.ui.select(
+            `Apply ${report.risk} edit to ${report.files.length} file(s)? Review code: ${match[1]}. Read the complete preview above.`,
+            ["Decline", "Apply"]);
+          if (chosen !== "Apply") {
+            ctx.ui.notify(JSON.stringify({ schema: "pify.edit-preview/v1", status: "declined", reviewCode: match[1] }), "info");
+            return;
+          }
+        }
+        let permission = currentPermission();
+        if (ctx.mode === "tui" && permission.mode !== "safe") {
+          permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, ...input.paths] });
+        }
+        const result = await applyEdit({ ...input, approved: true, permission });
+        ctx.ui.notify(JSON.stringify(result), result.status === "applied" ? "info" : "warning");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ schema: "pify.edit-preview/v1", status: "error", message: error.message }), "warning");
       }
     },
   });
