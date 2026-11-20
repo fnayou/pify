@@ -1,0 +1,11 @@
+# Reviewed text edits
+
+Pify remains a bootstrap project. This workflow covers exact text replacement in explicitly named workspace files. It does not intercept Pi's built-in `edit` or `write` tools, arbitrary shell commands, or other extensions.
+
+Ask the agent to call `pify_edit_preview` with `paths`, `find`, and `replace`. It returns every file's complete before and after text, match count, risk, active mode, approval policy, and a review code without writing. A human can also run `/pify-edit preview <find> | <replace> | <comma-separated relative files>` for simple terms. The preview is bounded to 12 regular UTF-8 files, 8192 bytes per file, 32768 source bytes total, and 32768 serialized preview bytes. Pify refuses a larger request instead of hiding any change.
+
+After reading the complete preview, run `/pify-edit apply <reviewCode>` in the same Pi session. The command shows the complete preview again and asks for confirmation in the TUI. Declining changes no file. In RPC, sending that explicit apply command with the review code is the caller's approval; it never waits for terminal input. A missing preview, changed file, changed working directory, or mismatched review code prevents apply. A matching-code apply attempt consumes the preview; a wrong code leaves it available.
+
+Every mode needs approval and exact authorized file paths before writing. Safe requires those paths in `--pify-scope` before the session starts. Balanced and Full may approve missing paths in the TUI confirmation for this single action. Headless Balanced and Full callers must declare them in `--pify-scope`; otherwise Pify returns a structured permission refusal. The report marks multiple files, 10 or more matches in one file, and hidden, executable, instruction, package, or lock files as high risk. This risk label never skips the preview or approval.
+
+Pify rechecks all source files before writing and each file immediately before replacement. It refuses symlinks, hard-linked files, binary data, special permission bits, and unsupported paths. It tries to restore already changed files if a later write fails and reports any recovery failure. Multi-file replacement is not an atomic filesystem transaction; concurrent external writes or a parent-directory race remain outside this best-effort boundary. Use an OS sandbox when untrusted code must be contained.
