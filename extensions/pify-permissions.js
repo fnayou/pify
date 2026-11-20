@@ -6,6 +6,7 @@ import { Type } from "typebox";
 
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { applyEdit, previewEdit } from "../src/edit-previews.mjs";
+import { listGitConflicts, previewGitConflict, resolveGitConflict } from "../src/git-conflicts.mjs";
 import { inspectLocal } from "../src/inspect.mjs";
 import { applyModelSync, MODEL_SYNC_TARGETS, prepareModelSync } from "../src/model-sync.mjs";
 import { requestChoice } from "../src/choices.mjs";
@@ -186,6 +187,42 @@ export default function (pi) {
         ctx.ui.notify(JSON.stringify(result), "info");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ status: "error", message: error.message }), "warning");
+      }
+    },
+  });
+
+  pi.registerCommand("pify-conflict", {
+    description: "List, preview, or resolve one text Git conflict without committing or pushing",
+    handler: async (args, ctx) => {
+      try {
+        const command = args.trim() || "list";
+        if (command === "list") {
+          const report = await listGitConflicts({ cwd: ctx.cwd });
+          ctx.ui.notify(JSON.stringify(report), "info");
+          return;
+        }
+        const match = /^(preview|resolve)\s+(.+?)\s+\|\s+(ours|theirs)$/.exec(command);
+        if (!match) throw new Error("Usage: /pify-conflict <list|preview <file> | ours|theirs|resolve <file> | ours|theirs>");
+        const [, action, file, choice] = match;
+        const preview = await previewGitConflict({ cwd: ctx.cwd, file, choice });
+        if (action === "preview" || preview.status !== "ready") {
+          ctx.ui.notify(ctx.mode === "tui" && preview.status === "ready"
+            ? `${preview.path}: ${preview.hunks} conflict hunk(s), ${choice} selected. Project tests not run.\n${preview.diff}`
+            : JSON.stringify(preview), preview.status === "ready" ? "info" : "warning");
+          return;
+        }
+        let permission = currentPermission();
+        if (ctx.mode === "tui") {
+          const approved = await ctx.ui.confirm("Stage this Git conflict resolution?",
+            `${preview.path}: choose ${choice} in ${preview.hunks} hunk(s).\n${preview.diff}\nStructural checks passed. Project tests not run. No commit or push.`);
+          if (!approved) { ctx.ui.notify("Git conflict unchanged", "info"); return; }
+          const target = `git/conflicts/${preview.path}`;
+          permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, target] });
+        }
+        const result = await resolveGitConflict({ cwd: ctx.cwd, file, choice, permission, reviewCode: preview.reviewCode });
+        ctx.ui.notify(JSON.stringify(result), result.status === "resolved" ? "info" : "warning");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ schema: "pify.git-conflict/v1", status: "error", message: error.message }), "warning");
       }
     },
   });
