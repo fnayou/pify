@@ -40,6 +40,8 @@ jobs:
         run: python3 scripts/smoke_pi_git_package.py
       - name: Exercise synthetic Git version change and partial-failure recovery
         run: python3 scripts/smoke_pi_git_version_change.py
+      - name: Exercise explicit release gate against a disposable tag history
+        run: python3 -m unittest discover -s tests -p test_release_candidate.py
       - name: Verify local and Anthropic model paths without external services
         run: python3 scripts/smoke_pi_models.py
       - name: Verify per-project workflow opt-in, opt-out, and trust isolation
