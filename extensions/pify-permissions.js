@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 
+import { applyAtomicCommits, previewAtomicCommits } from "../src/atomic-commits.mjs";
 import { buildHealthReport, formatHealthReport } from "../src/health.mjs";
 import { applyEdit, previewEdit } from "../src/edit-previews.mjs";
 import { listGitConflicts, previewGitConflict, resolveGitConflict } from "../src/git-conflicts.mjs";
@@ -44,6 +45,7 @@ export default function (pi) {
   const themePermission = (permission) => permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, THEME_SETTING_RESOURCE] });
   let jobs = null;
   let pendingEdit = null;
+  let pendingCommit = null;
   const sessionJobs = () => jobs ??= new SessionJobs();
   let subagents = null;
   const sessionSubagents = () => {
@@ -53,6 +55,22 @@ export default function (pi) {
     }
     return subagents;
   };
+
+  pi.registerTool({
+    name: "pify_commit_preview",
+    label: "Pify commit preview",
+    description: "Preview 1 to 8 ordered Conventional Commit groups over exact repository files. Shows complete before/after text without staging or committing. A human creates the reviewed commits with /pify-commit apply <reviewCode>. Never pushes.",
+    promptSnippet: "Preview grouped Git commits without staging, committing, or pushing",
+    parameters: Type.Object({ groups: Type.Array(Type.Object({
+      message: Type.String(),
+      paths: Type.Array(Type.String(), { minItems: 1, maxItems: 24 }),
+    }), { minItems: 1, maxItems: 8 }) }),
+    execute: async (_id, params, _signal, _onUpdate, ctx) => {
+      const report = await previewAtomicCommits({ cwd: ctx.cwd, groups: params.groups });
+      pendingCommit = { cwd: ctx.cwd, groups: params.groups, reviewCode: report.reviewCode };
+      return { content: [{ type: "text", text: JSON.stringify(report) }], details: report };
+    },
+  });
 
   pi.registerTool({
     name: "pify_edit_preview",
@@ -131,6 +149,7 @@ export default function (pi) {
   });
   pi.on("session_shutdown", async (_event, ctx) => {
     pendingEdit = null;
+    pendingCommit = null;
     if (subagents) {
       await subagents.shutdown();
       subagents = null;
@@ -277,6 +296,59 @@ export default function (pi) {
         ctx.ui.notify(JSON.stringify(result), result.status === "applied" ? "info" : "warning");
       } catch (error) {
         ctx.ui.notify(JSON.stringify({ schema: "pify.edit-preview/v1", status: "error", message: error.message }), "warning");
+      }
+    },
+  });
+
+  pi.registerCommand("pify-commit", {
+    description: "Preview or create explicitly approved, grouped Conventional Commits without pushing",
+    handler: async (args, ctx) => {
+      try {
+        const command = args.trim();
+        if (command.startsWith("preview ")) {
+          const groups = JSON.parse(command.slice(8));
+          const report = await previewAtomicCommits({ cwd: ctx.cwd, groups });
+          pendingCommit = { cwd: ctx.cwd, groups, reviewCode: report.reviewCode };
+          ctx.ui.notify(JSON.stringify(report), "info");
+          return;
+        }
+        const match = /^apply ([0-9a-f]{20})$/.exec(command);
+        if (!match) throw new Error("Usage: /pify-commit <preview <JSON groups>|apply <reviewCode>>");
+        if (!pendingCommit || pendingCommit.cwd !== ctx.cwd || pendingCommit.reviewCode !== match[1]) {
+          ctx.ui.notify(JSON.stringify({ schema: "pify.atomic-commits/v1", status: "stale_preview" }), "warning");
+          return;
+        }
+        const input = pendingCommit;
+        pendingCommit = null;
+        let report;
+        try { report = await previewAtomicCommits(input); }
+        catch {
+          ctx.ui.notify(JSON.stringify({ schema: "pify.atomic-commits/v1", status: "stale_preview" }), "warning");
+          return;
+        }
+        if (report.reviewCode !== match[1]) {
+          ctx.ui.notify(JSON.stringify({ schema: "pify.atomic-commits/v1", status: "stale_preview" }), "warning");
+          return;
+        }
+        if (ctx.mode === "tui") {
+          ctx.ui.notify(JSON.stringify(report), "info");
+          const selected = await ctx.ui.select(
+            `Create ${report.groups.length} commit(s) on ${report.branch}? Review code: ${match[1]}. No push. Read the full preview above.`,
+            ["Decline", "Create commits"]);
+          if (selected !== "Create commits") {
+            ctx.ui.notify(JSON.stringify({ schema: "pify.atomic-commits/v1", status: "declined", commits: [], pushed: false }), "info");
+            return;
+          }
+        }
+        let permission = currentPermission();
+        if (ctx.mode === "tui" && permission.mode !== "safe") {
+          const targets = report.groups.flatMap((group) => group.files.map((file) => `git/commits/${file.path}`));
+          permission = permissionContext({ ...permission, authorizedPaths: [...permission.authorizedPaths, ...targets] });
+        }
+        const result = await applyAtomicCommits({ ...input, approved: true, permission });
+        ctx.ui.notify(JSON.stringify(result), result.status === "committed" ? "info" : "warning");
+      } catch (error) {
+        ctx.ui.notify(JSON.stringify({ schema: "pify.atomic-commits/v1", status: "error", message: error.message }), "warning");
       }
     },
   });
