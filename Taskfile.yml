@@ -18,9 +18,10 @@ tasks:
       - zensical build
 
   docs:check:
-    desc: Build documentation with strict checks
+    desc: Build documentation and check public bootstrap status
     cmds:
       - zensical build --strict
+      - python3 scripts/check_public_status.py
 
   version:check:
     desc: Validate npm-compatible YYYY.M.PATCH CalVer metadata
