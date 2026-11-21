@@ -13,6 +13,7 @@ The Pify-mediated side-effect paths include:
 | `uninstallManagedFiles` | Restore adopted files or remove created files | `uninstall` for every eligible managed file |
 | `/pify-delegate start` | Start a session-bound Pi worker | `agents/task-start`; the worker inherits equal or narrower Pify scope and tools |
 | `/pify-conflict resolve` | Apply and stage one reviewed text conflict | `git/conflicts/<repo-relative-path>`; see [Git conflict resolution](git-conflicts.md) |
+| `/pify-commit apply` | Create reviewed Conventional Commits for exact files | `git/commits/<repo-relative-path>` for every file; see [atomic commits](atomic-commits.md) |
 | `/pify-job start` | Dispatch a shell job and its nested commands | `jobs/current-workspace` in Balanced or Full; denied in Safe |
 | Pi's model-facing `bash` tool | Dispatch a shell command and its nested commands | `commands/shell` in Balanced or Full; denied in Safe |
 | Pi's interactive `!` and `!!` commands and RPC `bash` | Dispatch a shell command and its nested commands | `commands/shell` in Balanced or Full; denied in Safe |
