@@ -113,7 +113,8 @@ def main() -> None:
             "GIT_TERMINAL_PROMPT": "0",
             "NPM_CONFIG_AUDIT": "false",
             "NPM_CONFIG_FUND": "false",
-            "NPM_CONFIG_OFFLINE": "true",
+            # Pi must fetch Pify's pinned runtime dependencies into this isolated cache.
+            "NPM_CONFIG_OFFLINE": "false",
             "NPM_CONFIG_USERCONFIG": str(npm_user_config),
             "NPM_CONFIG_GLOBALCONFIG": str(npm_global_config),
             "NPM_CONFIG_CACHE": str(root / "npm-cache"),
