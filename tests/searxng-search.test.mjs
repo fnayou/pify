@@ -26,7 +26,7 @@ function mock(status, body, headers = {}) {
 test("explicit endpoint, exact approved POST, bounded candidate provenance and duplicate filtering", async () => {
   requests.length = 0;
   mock(200, { results: [
-    { url: "https://example.org/a", title: "A", content: "source candidate", engines: ["general"] },
+    { url: "https://example.org/a", title: "A\u001b[31m", content: "source\n candidate", engines: ["general"] },
     { url: "https://example.org/a#fragment", title: "duplicate" },
     { url: "http://127.0.0.1/private", title: "unsafe" },
     { url: "https://example.org/b", title: "B", engine: "other" },
@@ -39,6 +39,8 @@ test("explicit endpoint, exact approved POST, bounded candidate provenance and d
   assert.deepEqual(result.candidates.map((item) => item.url), ["https://example.org/a", "https://example.org/b"]);
   assert.equal(result.candidates[0].query, "public topic");
   assert.equal(result.candidates[0].provider, "searxng");
+  assert.equal(result.candidates[0].title, "A [31m");
+  assert.equal(result.candidates[0].snippet, "source  candidate");
   assert.match(result.candidates[0].retrievedAt, /^\d{4}-/);
   assert.deepEqual(result.warnings, ["engine-x: timeout", "2 unsafe or duplicate result(s) discarded"]);
   assert.equal(requests.length, 1);

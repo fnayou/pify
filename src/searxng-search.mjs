@@ -54,7 +54,7 @@ function publicUrl(value) {
 }
 
 function text(value, max) {
-  return typeof value === "string" ? value.slice(0, max) : "";
+  return typeof value === "string" ? value.slice(0, max).replace(/[\x00-\x1f\x7f]/g, " ") : "";
 }
 
 function engineWarnings(value) {
