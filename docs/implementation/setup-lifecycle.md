@@ -12,7 +12,7 @@ The [backed-up Git update candidate](native-git-update-candidate.md) adds a read
 
 For an existing Pi setup, the preflight must show each package resource collision before the user chooses whether to run `pi install`. Pi loads the package resources without copying them into the agent directory. A same-name user skill keeps its observed precedence; the operator must stop if that outcome is unwanted. The current package declares no regular file for the internal adoption module to copy. The module's exact conflict approval and rollback contract remains available for a future selected resource, but its unit tests do not prove a first-release adoption command. Pify must not invent an agent-level copy merely to exercise that API.
 
-The proposed acceptance interpretation is therefore an explicit reviewed choice to install the package with Pi's resource precedence, plus separate approval for any optional Pify-managed change. The owner must decide whether this satisfies #81's existing-user adoption requirement. If it does, run one final recorded journey through this exact sequence on macOS and Linux before calling it supported. If it does not, specify the missing user action and resource in #81 before adding another setup interface.
+The owner [approved this interpretation for #81](https://github.com/fnayou/pify/issues/81#issuecomment-7080719437): existing-user adoption is an explicit reviewed choice to install the package with Pi's resource precedence, plus separate approval for any optional Pify-managed change. Run one final recorded journey through this exact sequence on macOS and Linux before calling it supported. No release source is approved yet.
 
 ## Ownership and entrypoints
 
