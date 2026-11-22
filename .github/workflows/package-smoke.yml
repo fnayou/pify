@@ -44,7 +44,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_release_candidate.py
       - name: Verify local and Anthropic model paths without external services
         run: python3 scripts/smoke_pi_models.py
-      - name: Verify optional SearXNG opt-in and headless denial through Pi
+      - name: Verify SearXNG off, headless denial, and approved TUI query through Pi
         run: python3 scripts/smoke_pi_searxng.py
       - name: Verify per-project workflow opt-in, opt-out, and trust isolation
         run: python3 scripts/smoke_pi_workflow.py

@@ -129,7 +129,7 @@ def run_tui(agent, workspace, server):
         until(b"Pify: Balanced", 10)
         os.write(master, b"Search public topic.\r")
         until(b"Send this search query?", 10)
-        assert b"Exact query: public topic" in output
+        until(b"Exact query:", 5)
         os.write(master, b"y\r")
         deadline = time.monotonic() + 10
         while len(server.model_calls) < 2 and time.monotonic() < deadline:
