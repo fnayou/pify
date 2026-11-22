@@ -19,6 +19,7 @@ import { inspectOptimizations } from "../src/optimizations.mjs";
 import { authorizePifyAction, authorizeShellAction, clarificationResult, modeLabel, permissionContext, SHELL_COMMAND_RESOURCE } from "../src/permissions.mjs";
 import { disableProjectWorkflow, enableProjectWorkflow, inspectProjectWorkflow, WORKFLOW_RESOURCE } from "../src/project-workflow.mjs";
 import { searchLocal } from "../src/search.mjs";
+import { SearxngSearch, searchEndpoint, searchLimits } from "../src/searxng-search.mjs";
 import { createSkillDraft, previewSkillDraft, skillDraftTarget } from "../src/skill-draft.mjs";
 import { createSubagentDashboard } from "../src/subagent-dashboard.mjs";
 import { SUBAGENT_STATUS_EVENT } from "../src/subagent-status.mjs";
@@ -35,6 +36,14 @@ export default function (pi) {
   pi.registerFlag("pify-mode", { type: "string", default: "balanced", description: "Pify Safe, Balanced, or Full mode" });
   pi.registerFlag("pify-scope", { type: "string", default: "", description: "Comma-separated exact Pify resource paths" });
   pi.registerFlag("pify-preflight", { type: "boolean", default: false, description: "Preview Pify setup without selecting the fresh theme" });
+  pi.registerFlag("pify-research", { type: "boolean", default: false, description: "Enable optional research tools for this Pi session" });
+  pi.registerFlag("pify-search-provider", { type: "string", default: "none", description: "Explicit research search provider: none or searxng" });
+  pi.registerFlag("pify-searxng-endpoint", { type: "string", default: "", description: "Explicit SearXNG base URL; remote endpoints require HTTPS" });
+  pi.registerFlag("pify-searxng-token-env", { type: "string", default: "", description: "Name of an environment variable holding an optional ingress bearer token" });
+  pi.registerFlag("pify-searxng-max-queries", { type: "string", default: "3", description: "Maximum SearXNG requests per Pi session, 1 to 3" });
+  pi.registerFlag("pify-searxng-max-candidates", { type: "string", default: "5", description: "Maximum retained URL candidates per request, 1 to 5" });
+  pi.registerFlag("pify-searxng-timeout-ms", { type: "string", default: "10000", description: "SearXNG request timeout in ms, 1 to 10000" });
+  pi.registerFlag("pify-searxng-max-bytes", { type: "string", default: "262144", description: "Maximum SearXNG response bytes, 1 to 262144" });
 
   const currentPermission = () => permissionContext({
     mode: String(pi.getFlag("pify-mode") ?? "balanced").toLowerCase(),
@@ -104,6 +113,42 @@ export default function (pi) {
     execute: async (_id, params, signal, _onUpdate, ctx) => {
       const result = await searchLocal({ cwd: ctx.cwd, ...params, signal });
       return { content: [{ type: "text", text: JSON.stringify(result) }], details: result };
+    },
+  });
+
+  let webSearch = null;
+  pi.registerTool({
+    name: "pify_web_search",
+    label: "Pify web search",
+    description: "Find up to five untrusted URL candidates through the explicitly configured SearXNG service. Never retrieves pages or creates citations. Requires exact query approval; at most three calls per Pi session.",
+    promptSnippet: "Discover untrusted URL candidates through an explicitly selected, approved SearXNG search",
+    parameters: Type.Object({ query: Type.String({ minLength: 1, maxLength: 512 }) }),
+    execute: async (_id, { query }, signal, _onUpdate, ctx) => {
+      const report = (status) => ({ schema: "pify.searxng-search/v1", provider: "searxng", status, candidates: [], warnings: [] });
+      const result = (value) => ({ content: [{ type: "text", text: JSON.stringify(value) }], details: value });
+      if (pi.getFlag("pify-research") !== true || pi.getFlag("pify-search-provider") !== "searxng") return result(report("disabled"));
+      const permission = currentPermission();
+      if (permission.mode === "safe") return result(report("permission_denied"));
+      const decision = authorizePifyAction({ permission, action: { kind: "search-web", targets: ["network/searxng"] } });
+      if (decision.outcome !== "allowed") return result(report(decision.outcome));
+      const endpoint = String(pi.getFlag("pify-searxng-endpoint") ?? "");
+      let origin;
+      try { origin = searchEndpoint(endpoint).origin; } catch { return result(report("invalid_configuration")); }
+      const tokenEnv = String(pi.getFlag("pify-searxng-token-env") ?? "");
+      if (tokenEnv && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(tokenEnv)) return result(report("invalid_configuration"));
+      if (tokenEnv && !process.env[tokenEnv]) return result(report("missing_credential"));
+      const limitFlags = { queries: "pify-searxng-max-queries", candidates: "pify-searxng-max-candidates",
+        timeoutMs: "pify-searxng-timeout-ms", responseBytes: "pify-searxng-max-bytes" };
+      const rawLimits = Object.fromEntries(Object.entries(limitFlags).map(([key, flag]) => [key, Number(pi.getFlag(flag))]));
+      let limits;
+      try { limits = searchLimits(rawLimits); } catch { return result(report("invalid_configuration")); }
+      if (ctx.mode !== "tui") return result(report("approval_required"));
+      if (typeof query !== "string" || !query.trim() || query.length > 512 || /[\x00-\x1f\x7f]/.test(query)) return result(report("invalid_query"));
+      if (/(^|\s)!\S/.test(query)) return result(report("query_review_required"));
+      const approved = await ctx.ui.confirm("Send this search query?", `SearXNG: ${origin}\nExact query: ${query}`);
+      if (!approved) return result(report("denied"));
+      webSearch ??= new SearxngSearch({ endpoint, token: tokenEnv ? process.env[tokenEnv] : "", limits });
+      return result(await webSearch.search({ query, approved: true, signal }));
     },
   });
 
