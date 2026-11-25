@@ -16,7 +16,7 @@ The owner [approved this interpretation for #81](https://github.com/fnayou/pify/
 
 ## Ownership and entrypoints
 
-Pi owns package registration and resource loading. Its documented commands are `pi install <source>`, `pi list`, `pi config`, and `pi remove <source>`. A local package loads from its path without copying its resources. A pinned npm version requires a reviewed registry publication; a pinned Git commit requires a reviewed, reachable repository. The current private package declares one extension, three skills, and one theme; it declares no prompt templates. See the pinned [Pi 1.5.2 package](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/packages.md) and [CLI](https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/docs/cli.md) contracts.
+Pi owns package registration and resource loading. Its documented commands are `pi install <source>`, `pi list`, `pi config`, and `pi remove <source>`. A local package loads from its path without copying its resources. A pinned npm version requires a reviewed registry publication; a pinned Git commit requires a reviewed, reachable repository. The current private package declares one extension, three skills, and one theme; it declares no prompt templates. See the pinned [Pi 1.6.0 package](https://github.com/earendil-works/pi/blob/v1.6.0/packages/coding-agent/docs/packages.md) and [CLI](https://github.com/earendil-works/pi/blob/v1.6.0/packages/coding-agent/docs/cli.md) contracts.
 
 Pify owns only side effects performed by its extension after Pi loads it. Current examples are theme selection in agent settings and an opt-in project workflow file. The regular-file adoption module has no selected package resource to copy into the agent directory. Package resources must stay in Pi's package loader; copying them solely to use the adoption module would create duplicate ownership and a second removal path.
 
@@ -59,7 +59,7 @@ The local preflight is development evidence, not permission to install Pify into
 
 ## Acceptance plan
 
-Use official Pi 1.5.2 in separate fresh and existing temporary agent directories and workspaces on macOS and Linux. Do not use an active Pi installation. Record the source, Pi version, platform, and redacted results.
+For [Pi 1.6.0 qualification #172](https://github.com/fnayou/pify/issues/172), use official Pi 1.6.0 in separate fresh and existing temporary agent directories and workspaces on macOS and Linux. Keep prior Pi 1.5.2 runs as historical evidence. Do not use an active Pi installation. Record the source, Pi version, platform, and redacted results.
 
 1. Snapshot the existing fixture, including an unrelated Pi package, same-name user skill, personal theme, credentials, sessions, and project files. Run transient preflight and verify the Pify-owned portion is unchanged. Compare the path-bound review code with the declared local package in an ordinary session after `pi install`.
 2. Install the same source through Pi. Start ordinary TUI and RPC sessions. Check `pi list`, `/pify-health`, resource precedence, no duplicate package resources, and preservation of unrelated state. The fresh fixture must show the theme plan before install, then apply the approved #30 default and offer rollback. A fixture with explicit `system` or personal theme must retain that choice.
