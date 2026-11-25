@@ -8,6 +8,6 @@ The tool makes `POST /search` with form fields `q` and `format=json`. SearXNG mu
 
 Initial hard ceilings are three attempted requests per loaded Pi session, five retained candidates per request, one active request, ten seconds, and 256 KiB per successful response. The `--pify-searxng-max-queries`, `--pify-searxng-max-candidates`, `--pify-searxng-timeout-ms`, and `--pify-searxng-max-bytes` flags may lower those ceilings. Failed requests count. The eventual #38 research-run budget must also encompass these calls; this isolated tool cannot supply the whole research workflow.
 
-`node --test tests/searxng-search.test.mjs` exercises a local mock HTTP service. `python3 scripts/smoke_pi_searxng.py` checks off, headless denial, and a TUI-approved candidate through isolated Pi 1.5.2 and local model/search fixtures. CI passed both on macOS and Linux.
+`node --test tests/searxng-search.test.mjs` exercises a local mock HTTP service. `python3 scripts/smoke_pi_searxng.py` checks off, headless denial, and a TUI-approved candidate through isolated Pi 1.6.0 and local model/search fixtures. [CI passed](https://github.com/fnayou/pify/actions/runs/45589503711) on macOS and Linux.
 
-Real-instance validation remains an owner-controlled gate for #168. Review its evidence privately before accepting this candidate. Public artifacts must not contain the endpoint, configuration, credentials, queries, or responses.
+One owner-authorized Pi 1.6.0 public-query check passed with [redacted evidence in #168](https://github.com/fnayou/pify/issues/168#issuecomment-7155954064). #168 remains open for #38's research-run budget and #147's supplied-URL retrieval integration. Public artifacts must not contain the endpoint, configuration, credentials, queries, or responses.
