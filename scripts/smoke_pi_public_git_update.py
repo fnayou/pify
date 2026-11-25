@@ -13,6 +13,10 @@ from smoke_pi_package import run_pi
 
 URL = "https://github.com/fnayou/pify.git"
 SOURCE = "git:github.com/fnayou/pify@"
+NON_RUNTIME_REHEARSAL_FILES = {
+    "scripts/smoke_pi_public_git_update.py",
+    ".github/workflows/live-github-update-smoke.yml",
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -84,7 +88,7 @@ def main() -> None:
         except AssertionError as error:
             raise AssertionError("B must be reachable from public main") from error
         changed = git(["diff", "--name-only", old_commit, new_commit], reviewed, env).splitlines()
-        require(bool(changed) and all(path.startswith("docs/") or path == "scripts/smoke_pi_public_git_update.py"
+        require(bool(changed) and all(path.startswith("docs/") or path in NON_RUNTIME_REHEARSAL_FILES
                                       for path in changed), "B changes installed runtime or package metadata")
         old_preview = setup_report(workspace, env, f"preview-git {old_commit}",
                                    ["-e", str(reviewed), "--pify-preflight"])
