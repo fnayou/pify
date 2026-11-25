@@ -109,8 +109,8 @@ def main() -> None:
             env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
             workspace = root / "setup"
             workspace.mkdir()
-            if run_pi(["--version"], workspace, env).strip() != "1.5.2":
-                raise AssertionError("Pi 1.5.2 fixture required")
+            if run_pi(["--version"], workspace, env).strip() != "1.6.0":
+                raise AssertionError("Pi 1.6.0 fixture required")
             run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
             agent.joinpath("models.json").write_text(json.dumps({"providers": {"fixture-provider": {
                 "baseUrl": f"http://127.0.0.1:{server.server_port}/v1", "api": "openai-completions",

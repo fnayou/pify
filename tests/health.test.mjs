@@ -63,7 +63,7 @@ async function snapshot(root) {
 test("fresh check is read-only and useful without settings or optional services", async (t) => {
   const agentDir = await fixture(t);
   const before = await snapshot(agentDir);
-  const report = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const report = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.equal(report.compatibility.status, "verified");
   assert.equal(report.install.status, "not_installed");
   assert.deepEqual(report.themeSelection, { status: "not_configured", savedTheme: null, rollbackAvailable: false });
@@ -76,7 +76,8 @@ test("only the qualified Pi version is verified", async (t) => {
   const agentDir = await fixture(t);
   for (const [piVersion, status] of [
     ["1.4.0", "unverified"],
-    ["1.5.2", "verified"],
+    ["1.5.2", "unverified"],
+    ["1.6.0", "verified"],
     ["1.5.3", "unverified"],
   ]) {
     assert.equal((await buildHealthReport({ agentDir, piVersion })).compatibility.status, status);
@@ -89,20 +90,20 @@ test("health reports theme rollback availability without changing its journal", 
   const permission = permissionContext({ authorizedPaths: ["settings.json"] });
   await selectPifyTheme({ agentDir, permission });
   const before = await snapshot(agentDir);
-  const active = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const active = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.deepEqual(active.themeSelection, { status: "available", savedTheme: "pify", rollbackAvailable: true });
   assert.match(formatHealthReport(active), /Saved theme: pify; Pify rollback: available/);
   assert.deepEqual(await snapshot(agentDir), before);
 
   await rollbackPifyTheme({ agentDir, permission });
   const afterRollback = await snapshot(agentDir);
-  const restored = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const restored = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.deepEqual(restored.themeSelection, { status: "available", savedTheme: "system", rollbackAvailable: false });
   assert.deepEqual(await snapshot(agentDir), afterRollback);
 
   await selectPifyTheme({ agentDir, permission });
   await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [PACKAGE_ROOT], theme: "personal" }));
-  const drifted = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const drifted = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.deepEqual(drifted.themeSelection, { status: "available", savedTheme: "personal", rollbackAvailable: false });
 });
 
@@ -112,7 +113,7 @@ test("damaged theme journal reports unavailable without echoing its contents", a
   await fs.mkdir(path.join(agentDir, "pify-state"), { mode: 0o700 });
   await fs.writeFile(path.join(agentDir, "pify-state", "theme-selection.json"), '{"secret":"PRIVATE_TEST_VALUE",', { mode: 0o600 });
   const before = await snapshot(agentDir);
-  const report = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const report = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.deepEqual(report.themeSelection, { status: "unavailable", savedTheme: null, rollbackAvailable: false });
   assert.equal(JSON.stringify(report).includes("PRIVATE_TEST_VALUE"), false);
   assert.deepEqual(await snapshot(agentDir), before);
@@ -123,7 +124,7 @@ test("damaged theme journal reports unavailable without echoing its contents", a
   await fs.rm(journal);
   await fs.symlink(outside, journal);
   const linkedBefore = await snapshot(agentDir);
-  const linked = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const linked = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.deepEqual(linked.themeSelection, { status: "unavailable", savedTheme: null, rollbackAvailable: false });
   assert.equal(JSON.stringify(linked).includes("PRIVATE_TEST_VALUE"), false);
   assert.deepEqual(await snapshot(agentDir), linkedBefore);
@@ -139,7 +140,7 @@ test("adopted check lists only provenance-matched files and their recorded versi
   const preview = await previewAdoption({ agentDir, resources });
   await applyAdoption({ agentDir, resources, preview, permission: permissionContext({ authorizedPaths: ["skills/pify.md"] }) });
   const before = await snapshot(agentDir);
-  const report = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const report = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.equal(report.install.status, "installed");
   assert.deepEqual(report.inventory.managed.map(({ relativePath, version }) => [relativePath, version]), [["skills/pify.md", "2026.11.4"]]);
   assert.deepEqual(report.inventory.conflicts, []);
@@ -149,7 +150,7 @@ test("adopted check lists only provenance-matched files and their recorded versi
   assert.deepEqual(await snapshot(agentDir), before);
 
   await fs.writeFile(path.join(agentDir, "settings.json"), JSON.stringify({ packages: [{ source: PACKAGE_ROOT, skills: [] }] }));
-  const filtered = await buildHealthReport({ agentDir, piVersion: "1.5.2" });
+  const filtered = await buildHealthReport({ agentDir, piVersion: "1.6.0" });
   assert.equal(filtered.install.status, "installed");
   assert.equal(filtered.install.sourceKind, "local");
 });
@@ -159,7 +160,7 @@ test("health recognizes an exact pinned npm declaration at Pi's managed path", a
   const settings = path.join(agentDir, "settings.json");
   await fs.writeFile(settings, JSON.stringify({ packages: [{ source: "npm:@fnayou/pify@2026.11.4", skills: [] }] }));
   const before = await snapshot(agentDir);
-  const report = await buildHealthReport({ agentDir, packageRoot, piVersion: "1.5.2" });
+  const report = await buildHealthReport({ agentDir, packageRoot, piVersion: "1.6.0" });
   assert.deepEqual(report.install, { status: "installed", sourceKind: "npm", evidence: "matching pinned npm declaration and Pi-managed package path" });
   assert.match(formatHealthReport(report), /Pify package: installed \(npm\)/);
   assert.equal(report.pifyPackageVersion, "2026.11.4");
@@ -205,7 +206,7 @@ test("health recognizes a pinned Git declaration at Pi's managed checkout", asyn
   for (const declaration of [GIT_SOURCE, { source: GIT_SOURCE, skills: [] }]) {
     await fs.writeFile(settings, JSON.stringify({ packages: [declaration] }));
     const before = await snapshot(agentDir);
-    const report = await buildHealthReport({ agentDir, packageRoot, piVersion: "1.5.2" });
+    const report = await buildHealthReport({ agentDir, packageRoot, piVersion: "1.6.0" });
     assert.deepEqual(report.install, { status: "installed", sourceKind: "git", evidence: "matching pinned Git declaration and Pi-managed checkout" });
     assert.match(formatHealthReport(report), /Pify package: installed \(git\)/);
     assert.equal(report.pifyPackageVersion, "2026.11.4");

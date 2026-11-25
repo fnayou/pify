@@ -1,4 +1,4 @@
-"""Check SearXNG tool opt-in and headless denial in isolated Pi 1.5.2."""
+"""Check SearXNG tool opt-in and headless denial in isolated Pi 1.6.0."""
 
 import json
 import fcntl
@@ -167,7 +167,7 @@ def main():
             env = {**os.environ, "PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1"}
             version = subprocess.run(["pi", "--version"], env=env, cwd=workspace, text=True,
                 capture_output=True, check=True).stdout.strip()
-            assert version == "1.5.2", version
+            assert version == "1.6.0", version
             (agent / "models.json").write_text(json.dumps({"providers": {"fixture": {
                 "baseUrl": f"http://127.0.0.1:{server.server_port}/v1", "api": "openai-completions",
                 "apiKey": "fixture-key", "models": [{"id": "fixture", "contextWindow": 8192, "maxTokens": 128}],
@@ -181,7 +181,7 @@ def main():
             assert server.search_calls == 0
             server.model_calls.clear()
             run_tui(agent, workspace, server)
-            print(f"Pi 1.5.2 SearXNG opt-in/headless/TUI smoke passed on {os.uname().sysname}")
+            print(f"Pi 1.6.0 SearXNG opt-in/headless/TUI smoke passed on {os.uname().sysname}")
     finally:
         server.shutdown()
         server.server_close()

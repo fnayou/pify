@@ -58,7 +58,7 @@ def main() -> None:
         })
         env.pop("PI_PACKAGE_DIR", None)
         env.pop("PI_OFFLINE", None)
-        require(run_pi(["--version"], workspace, env).strip() == "1.5.2", "Official Pi 1.5.2 is required")
+        require(run_pi(["--version"], workspace, env).strip() == "1.6.0", "Official Pi 1.6.0 is required")
         git(["clone", "--no-checkout", URL, str(reviewed)], root, env)
         git(["checkout", "--detach", A], reviewed, env)
         require(git(["rev-parse", "HEAD"], reviewed, env) == A, "Reviewed A checkout differs")
@@ -112,7 +112,7 @@ def main() -> None:
         require(SOURCE + A not in json.loads(settings.read_text())["packages"],
                 "Pi left the Pify declaration after removal")
         require((workspace / "user-note").read_text() == "keep\n", "Unrelated note changed")
-    print(json.dumps({"platform": os.uname().sysname, "piVersion": "1.5.2",
+    print(json.dumps({"platform": os.uname().sysname, "piVersion": "1.6.0",
                       "fromCommit": A, "toCommit": B, "status": "passed"}))
 
 

@@ -1,4 +1,4 @@
-"""Verify optional empty vault setup through official Pi 1.5.2 RPC."""
+"""Verify optional empty vault setup through official Pi 1.6.0 RPC."""
 
 import hashlib
 import os
@@ -33,8 +33,8 @@ def main() -> None:
         (existing / "personal.md").write_text("private note\n")
         env = os.environ.copy()
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
-        if run_pi(["--version"], workspace, env).strip() != "1.5.2":
-            raise AssertionError("Pi 1.5.2 fixture required")
+        if run_pi(["--version"], workspace, env).strip() != "1.6.0":
+            raise AssertionError("Pi 1.6.0 fixture required")
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
 
         denied = command(workspace, env, "denied", f"create {vault}")

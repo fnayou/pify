@@ -57,8 +57,8 @@ else:
         env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color",
                     "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}", "GIT_CONFIG_GLOBAL": str(config),
                     "GIT_CONFIG_NOSYSTEM": "1", "PIFY_TEST_GH_STATE": str(root / "gh-state.json")})
-        if run_pi(["--version"], workspace, env).strip() != "1.5.2":
-            raise AssertionError("Pi 1.5.2 fixture required")
+        if run_pi(["--version"], workspace, env).strip() != "1.6.0":
+            raise AssertionError("Pi 1.6.0 fixture required")
         run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
         if command(workspace, env, "create", f"create {vault}", scope(vault)).get("status") != "created":
             raise AssertionError("Vault creation failed")
