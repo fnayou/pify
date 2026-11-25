@@ -1,4 +1,4 @@
-"""Verify local memory approval and prompt activation through Pi 1.5.2 RPC."""
+"""Verify local memory approval and prompt activation through Pi 1.6.0 RPC."""
 
 import hashlib
 import json
@@ -41,8 +41,8 @@ def main() -> None:
             workspace.mkdir()
             env = os.environ.copy()
             env.update({"PI_CODING_AGENT_DIR": str(agent), "PI_OFFLINE": "1", "TERM": "xterm-256color"})
-            if run_pi(["--version"], workspace, env).strip() != "1.5.2":
-                raise AssertionError("Pi 1.5.2 fixture required")
+            if run_pi(["--version"], workspace, env).strip() != "1.6.0":
+                raise AssertionError("Pi 1.6.0 fixture required")
             run_pi(["install", str(PACKAGE_ROOT)], workspace, env)
             if command(workspace, env, "create", f"create {vault}", scope(vault)).get("status") != "created":
                 raise AssertionError("Vault creation failed")

@@ -46,8 +46,8 @@ def main() -> None:
     except (OSError, subprocess.TimeoutExpired) as error:
         parser.error(f"Could not query Pi version: {type(error).__name__}")
     pi_version = version_check.stdout.strip()
-    if version_check.returncode != 0 or pi_version != "1.5.2":
-        parser.error(f"Official Pi 1.5.2 is required on PATH; found {pi_version or 'unknown'}")
+    if version_check.returncode != 0 or pi_version != "1.6.0":
+        parser.error(f"Official Pi 1.6.0 is required on PATH; found {pi_version or 'unknown'}")
     live_model = None
     if args.live_litellm or args.live_local:
         if not sys.stdin.isatty():
@@ -122,7 +122,7 @@ def main() -> None:
         env.pop("PI_PACKAGE_DIR", None)
         env.pop("PI_OFFLINE", None)
         if run_pi(["--version"], workspace, env).strip() != pi_version:
-            raise AssertionError("Official Pi 1.5.2 is required")
+            raise AssertionError("Official Pi 1.6.0 is required")
 
         git(["clone", "--no-checkout", GITHUB_URL, str(reviewed)], root, env)
         git(["checkout", "--detach", args.commit], reviewed, env)

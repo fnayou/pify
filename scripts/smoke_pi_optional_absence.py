@@ -35,7 +35,7 @@ def main() -> None:
         }
         version = subprocess.run(["pi", "--version"], cwd=workspace, env=environment,
                                  capture_output=True, text=True, check=True).stdout.strip()
-        assert version == "1.5.2", version
+        assert version == "1.6.0", version
         subprocess.run(["pi", "install", str(PACKAGE_ROOT)], cwd=workspace, env=environment,
                        capture_output=True, text=True, check=True, timeout=30)
         assert not (agent / "models.json").exists()
