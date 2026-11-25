@@ -7,10 +7,16 @@ on:
 
 jobs:
   smoke:
+    name: smoke (${{ matrix.check }})
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+        # Keep required check names stable while Linux uses a pinned runner.
+        include:
+          - check: macos-latest
+            runner: macos-latest
+          - check: ubuntu-latest
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     steps:
@@ -44,6 +50,8 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_release_candidate.py
       - name: Verify local and Anthropic model paths without external services
         run: python3 scripts/smoke_pi_models.py
+      - name: Verify SearXNG off, headless denial, and approved TUI query through Pi
+        run: python3 scripts/smoke_pi_searxng.py
       - name: Verify per-project workflow opt-in, opt-out, and trust isolation
         run: python3 scripts/smoke_pi_workflow.py
       - name: Verify optional memory vault create, connect, skip, and unavailable status
