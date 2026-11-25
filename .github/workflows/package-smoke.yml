@@ -7,10 +7,16 @@ on:
 
 jobs:
   smoke:
+    name: smoke (${{ matrix.check }})
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-24.04]
-    runs-on: ${{ matrix.os }}
+        # Keep required check names stable while Linux uses a pinned runner.
+        include:
+          - check: macos-latest
+            runner: macos-latest
+          - check: ubuntu-latest
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     steps:
