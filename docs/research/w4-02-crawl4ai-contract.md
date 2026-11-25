@@ -1,10 +1,20 @@
 # W4-02-D: optional Crawl4AI page retrieval contract
 
-**Status, 2026-11-14:** Discovery for [#146](https://github.com/fnayou/pify/issues/146), supporting [research capability #38](https://github.com/fnayou/pify/issues/38). Pify remains a bootstrap project. This is a proposal, not an implemented integration or a claim about the owner's private service. No instance, endpoint, token, or page response was contacted or recorded.
+**Status, 2026-11-25:** The v0.9.5 compatibility target below is superseded by [v0.9.6](https://github.com/unclecode/crawl4ai/releases/tag/v0.9.6). Its [security changelog](https://github.com/unclecode/crawl4ai/blob/v0.9.6/CHANGELOG.md#096---2026-11-20) reports another Docker-server SSRF path and cross-caller browser-context sharing, and tells self-hosted operators to upgrade. Do not implement or validate #147 against v0.9.5. The narrow REST choice remains a candidate, but v0.9.6 needs the scope and fixture checks below before implementation approval. Pify remains a bootstrap project; no private instance was contacted or changed.
 
-## Decision
+## Historical discovery decision (2026-11-14)
 
-**Conditional go for a narrow `POST /crawl` REST adapter in #147; no go for exposing the whole Crawl4AI MCP tool set.** The initial compatibility target is **exactly Crawl4AI Docker server v0.9.5**, not `latest` or an untested range. Its [release](https://github.com/unclecode/crawl4ai/releases/tag/v0.9.5) and [changelog](https://github.com/unclecode/crawl4ai/blob/v0.9.5/CHANGELOG.md) identify it as the 2026-10-14 security release. The pinned [security policy](https://github.com/unclecode/crawl4ai/blob/v0.9.5/SECURITY.md) supports 0.9.x only and says older lines receive no backports. Later patch versions need fresh advisory and contract review. A version string or healthy `/health` response is necessary evidence, never proof of egress safety; the operator must verify the deployed image and its network policy.
+**The discovery proposed a narrow `POST /crawl` REST adapter in #147 and rejected exposing the whole Crawl4AI MCP tool set.** Its initial compatibility target was **exactly Crawl4AI Docker server v0.9.5**, not `latest` or an untested range. That target is no longer acceptable after the v0.9.6 security release. The [v0.9.5 release](https://github.com/unclecode/crawl4ai/releases/tag/v0.9.5) and [changelog](https://github.com/unclecode/crawl4ai/blob/v0.9.5/CHANGELOG.md) remain historical evidence for this discovery. A version string or healthy `/health` response is necessary evidence, never proof of egress safety; the operator must verify the deployed image and its network policy.
+
+## v0.9.6 scope gate
+
+The public [v0.9.5...v0.9.6 comparison](https://github.com/unclecode/crawl4ai/compare/v0.9.5...v0.9.6) leaves the `POST /crawl` route and core URL/markdown result fields structurally intact. This is a source-review inference, not a passed API fixture. Before #147 implementation approval:
+
+1. Pin a reviewed v0.9.6 Docker image digest. Verify version, authentication, and egress settings in an isolated fixture; require separate operator evidence for the deployed instance.
+2. Prove the minimal one-URL `POST /crawl` body and serialized success, failure, redirect, and markdown shapes against an isolated v0.9.6 fixture. Review all v0.9.6 security fixes for controls relevant to that request.
+3. Reconfirm the boundaries and mock acceptance cases below with v0.9.6. Keep #147 `needs-info` until the scope review is accepted. Real-instance testing still needs separate owner authorization.
+
+The v0.9.5-specific examples below document the original discovery and are not a current implementation pin.
 
 The upstream [license at v0.9.5](https://github.com/unclecode/crawl4ai/blob/v0.9.5/LICENSE) is Apache-2.0. Pify would send bounded requests to a separately operated service; it would not package or manage Crawl4AI. Firecrawl stays optional and absent, as [#38](https://github.com/fnayou/pify/issues/38) specifies. The older [W0-05 survey](w0-05-skill-survey.md) did not test either service.
 
